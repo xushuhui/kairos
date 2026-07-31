@@ -1,0 +1,4 @@
+github.com/k2-fsa/sherpa-onnx-go-windows v1.13.4 h1:FFHlCnTwB2H7X4OUAQwRfeFqU0aV5yOeEvpJAS0G75s=
+github.com/k2-fsa/sherpa-onnx-go-windows v1.13.4/go.mod h1:5AX7TU8+P/gInjglY1ijtWUM2b8iyR0QX4yEngzMe64=
+github.com/sashabaranov/go-openai v1.41.2 h1:vfPRBZNMpnqu8ELsclWcAvF19lDNgh1t6TVfFFOPiSM=
+github.com/sashabaranov/go-openai v1.41.2/go.mod h1:lj5b/K+zjTSFxVLijLSTDZuP7adOgerWeFyZLUhAKRg=
