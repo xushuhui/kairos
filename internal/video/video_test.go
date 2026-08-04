@@ -7,38 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"kairos/internal/testutil"
 )
-
-// requireFfmpeg skips the test if ffmpeg/ffprobe aren't on PATH — the test
-// fixtures are generated with ffmpeg itself, so without it there's nothing
-// to test against.
-func requireFfmpeg(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not found in PATH, skipping")
-	}
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		t.Skip("ffprobe not found in PATH, skipping")
-	}
-}
-
-// makeTestMp4 generates a 5s synthetic MP4 (silent audio + static color
-// block video) via ffmpeg lavfi sources, per spec.md Testing Decisions:
-// "短剧源文件可以预置一个 5 秒的测试 MP4（静音 + 固定色块）".
-func makeTestMp4(t *testing.T) string {
-	t.Helper()
-	out := filepath.Join(t.TempDir(), "fixture.mp4")
-	cmd := exec.Command("ffmpeg",
-		"-f", "lavfi", "-i", "color=c=black:size=64x64:rate=10:duration=5",
-		"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:duration=5",
-		"-c:v", "libx264", "-c:a", "aac",
-		"-y", out,
-	)
-	if outBytes, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("failed to generate test fixture mp4: %v\n%s", err, outBytes)
-	}
-	return out
-}
 
 // ffprobeStream runs ffprobe -show_streams on path and returns the decoded
 // stream list.
@@ -66,8 +37,8 @@ func ffprobeStreams(t *testing.T, path string) []ffprobeStream {
 }
 
 func TestExtractAudio_ProducesValid16kMonoWav(t *testing.T) {
-	requireFfmpeg(t)
-	videoPath := makeTestMp4(t)
+	testutil.RequireFfmpeg(t)
+	videoPath := testutil.MakeTestMp4(t)
 	outWav := filepath.Join(t.TempDir(), "out.wav")
 
 	if err := ExtractAudio(videoPath, outWav); err != nil {
@@ -94,7 +65,7 @@ func TestExtractAudio_ProducesValid16kMonoWav(t *testing.T) {
 }
 
 func TestExtractAudio_MissingInput(t *testing.T) {
-	requireFfmpeg(t)
+	testutil.RequireFfmpeg(t)
 	outWav := filepath.Join(t.TempDir(), "out.wav")
 
 	err := ExtractAudio(filepath.Join(t.TempDir(), "does-not-exist.mp4"), outWav)
@@ -135,11 +106,11 @@ func TestSelectEncoder_Libx264WithoutCuda(t *testing.T) {
 }
 
 func TestCutClip_Libx264ProducesPlayableOutput(t *testing.T) {
-	requireFfmpeg(t)
+	testutil.RequireFfmpeg(t)
 	if CudaAvailable() {
 		t.Skip("CUDA available on this machine, this test only covers the libx264 fallback path")
 	}
-	videoPath := makeTestMp4(t)
+	videoPath := testutil.MakeTestMp4(t)
 	outPath := filepath.Join(t.TempDir(), "clip.mp4")
 
 	const startMs, endMs uint64 = 1000, 3000
@@ -188,5 +159,26 @@ func TestCutClip_InvalidRange(t *testing.T) {
 	err := CutClip("irrelevant.mp4", 5000, 1000, filepath.Join(t.TempDir(), "out.mp4"))
 	if err == nil {
 		t.Fatal("CutClip() error = nil, want error for endMs <= startMs")
+	}
+}
+
+func TestDuration_ReturnsAccurateMs(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	src := testutil.MakeTestMp4(t) // 5s fixture, see makeTestMp4
+
+	gotMs, err := Duration(src)
+	if err != nil {
+		t.Fatalf("Duration() error = %v", err)
+	}
+	const wantMs, toleranceMs = 5_000, 200
+	if diff := int64(gotMs) - wantMs; diff < -toleranceMs || diff > toleranceMs {
+		t.Errorf("Duration() = %dms, want %dms ± %dms", gotMs, wantMs, toleranceMs)
+	}
+}
+
+func TestDuration_MissingInput(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	if _, err := Duration(filepath.Join(t.TempDir(), "does-not-exist.mp4")); err == nil {
+		t.Fatal("Duration() error = nil, want error for missing input")
 	}
 }

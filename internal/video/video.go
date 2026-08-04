@@ -8,9 +8,11 @@ package video
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +79,42 @@ func ExtractAudio(videoPath, outWav string) error {
 		return fmt.Errorf("提取音轨失败: %w", err)
 	}
 	return nil
+}
+
+// Duration 用 ffprobe 探测 videoPath 的总时长（毫秒），供编排层
+// 调用 core.ComputeWindow() 时提供 videoLenMs 参数。
+func Duration(videoPath string) (uint64, error) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrFfmpegNotFound, err)
+	}
+
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_entries", "format=duration",
+		videoPath,
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return 0, classifyFfmpegError(stderr.String())
+	}
+
+	var parsed struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		return 0, fmt.Errorf("%w: parse ffprobe duration output: %v", ErrEncodeFailed, err)
+	}
+
+	seconds, err := strconv.ParseFloat(parsed.Format.Duration, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: parse duration value %q: %v", ErrEncodeFailed, parsed.Format.Duration, err)
+	}
+	return uint64(seconds * 1000), nil
 }
 
 // CutClip 用视频编码器从 videoPath 截取 [startMs, endMs) 区间，写到 outPath。

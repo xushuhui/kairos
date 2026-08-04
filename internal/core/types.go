@@ -36,3 +36,23 @@ type HighlightWindow struct {
 	Reason             string
 	Candidates         []CandidateWindow
 }
+
+// Config 是 RunHighlightExtraction() 的可选运行参数。零值字段一律有明确的
+// 默认值（见 defaultTargetLenMs / defaultOutputPath），调用方不需要每次都填全。
+type Config struct {
+	// OutputPath 是高光片段的输出文件路径。留空时默认输出到源文件同目录下
+	// {source}_highlight.mp4（spec.md「输出策略」）。
+	OutputPath string
+	// TargetLenMs 是高光片段的目标时长（毫秒）。留空（0）时默认 60000ms
+	// （spec.md「目标时长约 60 秒」）。
+	TargetLenMs uint64
+}
+
+// HighlightOutput 是 RunHighlightExtraction() 成功时的产出摘要。
+type HighlightOutput struct {
+	OutputPath  string
+	StartMs     uint64
+	EndMs       uint64
+	Sentences   []Sentence
+	JudgeReason string
+}

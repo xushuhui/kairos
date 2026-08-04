@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-
-	"kairos/internal/core"
 )
 
 // timestampLayout 是历史文件名里时间戳部分的格式：文件系统安全（无冒号等非法字符），
@@ -26,19 +24,24 @@ var userConfigDir = os.UserConfigDir
 
 // Record 是一次处理（成功或失败）的业务级摘要，字段列表见
 // docs/scratch/short-drama-highlight-clip/spec.md 本地存储一节。
-// ASRRawResult/LLMRawResponse 直接复用 Transcriber/HighlightJudge 的输出类型，
-// 供历史记录页面回看转写文本和 LLM 判定理由（spec.md 用户故事 20/21）。
+//
+// ASRRawResult/LLMRawResponse 是预先 json.Marshal 好的 core.Sentence/
+// core.HighlightWindow 原始数据（json.RawMessage，逐字节透传，不反序列化）——
+// 特意不直接引用 core 包的具体类型：internal/core 的编排逻辑（RunHighlight-
+// Extraction）需要调用 history.WriteRecord() 写历史记录，如果这里反过来引用
+// core 的类型就会造成 core⇄history 循环 import。调用方（core）负责把
+// []core.Sentence/core.HighlightWindow 序列化后再传进来。
 type Record struct {
-	SourcePath       string               `json:"source_path"`
-	SourceName       string               `json:"source_name"`
-	HighlightPath    string               `json:"highlight_path,omitempty"`
-	HighlightStartMs uint64               `json:"highlight_start_ms,omitempty"`
-	HighlightEndMs   uint64               `json:"highlight_end_ms,omitempty"`
-	ASRRawResult     []core.Sentence      `json:"asr_raw_result,omitempty"`
-	LLMRawResponse   core.HighlightWindow `json:"llm_raw_response,omitempty"`
-	Status           string               `json:"status"` // "success" | "failed"
-	ErrorMessage     string               `json:"error_message,omitempty"`
-	CreatedAt        time.Time            `json:"created_at"`
+	SourcePath       string          `json:"source_path"`
+	SourceName       string          `json:"source_name"`
+	HighlightPath    string          `json:"highlight_path,omitempty"`
+	HighlightStartMs uint64          `json:"highlight_start_ms,omitempty"`
+	HighlightEndMs   uint64          `json:"highlight_end_ms,omitempty"`
+	ASRRawResult     json.RawMessage `json:"asr_raw_result,omitempty"`
+	LLMRawResponse   json.RawMessage `json:"llm_raw_response,omitempty"`
+	Status           string          `json:"status"` // "success" | "failed"
+	ErrorMessage     string          `json:"error_message,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // historyDir 解析 %APPDATA%/kairos/history/ 目录，不存在时自动创建，

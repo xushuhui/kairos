@@ -46,7 +46,7 @@ kairos/
 
 采用 Go 惯用的 `cmd/` + `internal/` 布局（`internal/` 保证这些包不会被仓库外部导入，符合"独立桌面应用不是库"的定位），不是简单把 Rust crate 名字换成 package 名字——Go 没有 workspace/crate 这套概念，`internal/xxx` 包名短小写，符合 Go 命名惯例。
 
-依赖方向：`cmd/kairos` → `{core, video, asr, llm, history}`；`{video, asr, llm, history}` → `core`（只依赖 core 暴露的类型/interface，互相之间零依赖）。`internal/core` 不依赖任何其他内部包，是整个项目唯一的"纯逻辑"节点。
+依赖方向：`cmd/kairos` → `{core, video, asr, llm, history}`；`internal/core` 是唯一编排者，直接依赖 `video`（提取音轨/剪辑/探测时长）和 `history`（写历史记录）——`asr`/`llm` 不是直接依赖，而是通过 `Transcriber`/`HighlightJudge` 两个 interface 注入，这两个是仅有的测试缝合点。`video`/`asr`/`llm`/`history` 互相之间零依赖，只依赖 `core` 暴露的类型/interface（2026-08-03 修正：原表述"internal/core 不依赖任何其他内部包"与上方架构图的 Core→Video/Core→History 箭头矛盾，以架构图和 ticket 05 的实现为准——`history.Record` 因此改为 `json.RawMessage` 字段而非直接引用 `core.Sentence`/`core.HighlightWindow`，见下方 internal/history 一节，否则 core↔history 会循环 import）。
 
 ## 核心接口（internal/core）
 
@@ -204,16 +204,16 @@ func (d *DeepSeekJudge) Judge(sentences []core.Sentence) (core.HighlightWindow, 
 package history
 
 type Record struct {
-    SourcePath        string    `json:"source_path"`
-    SourceName        string    `json:"source_name"`
-    HighlightPath     string    `json:"highlight_path,omitempty"`
-    HighlightStartMs  uint64    `json:"highlight_start_ms,omitempty"`
-    HighlightEndMs    uint64    `json:"highlight_end_ms,omitempty"`
-    AsrRawResult      []core.Sentence      `json:"asr_raw_result,omitempty"`
-    LlmRawResponse    core.HighlightWindow `json:"llm_raw_response,omitempty"`
-    Status            string    `json:"status"` // "success" | "failed"
-    ErrorMessage      string    `json:"error_message,omitempty"`
-    CreatedAt         time.Time `json:"created_at"`
+    SourcePath        string          `json:"source_path"`
+    SourceName        string          `json:"source_name"`
+    HighlightPath     string          `json:"highlight_path,omitempty"`
+    HighlightStartMs  uint64          `json:"highlight_start_ms,omitempty"`
+    HighlightEndMs    uint64          `json:"highlight_end_ms,omitempty"`
+    ASRRawResult      json.RawMessage `json:"asr_raw_result,omitempty"`   // 调用方（core）预先 json.Marshal([]core.Sentence) 好再传入
+    LLMRawResponse    json.RawMessage `json:"llm_raw_response,omitempty"` // 调用方（core）预先 json.Marshal(core.HighlightWindow) 好再传入
+    Status            string          `json:"status"` // "success" | "failed"
+    ErrorMessage      string          `json:"error_message,omitempty"`
+    CreatedAt         time.Time       `json:"created_at"`
 }
 
 func WriteRecord(record Record) error

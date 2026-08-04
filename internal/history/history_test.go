@@ -1,13 +1,12 @@
 package history
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"kairos/internal/core"
 )
 
 // withTempConfigDir 把 userConfigDir 替换为一个测试临时目录，避免测试写入
@@ -28,20 +27,12 @@ func sampleRecord(sourceName string, createdAt time.Time) Record {
 		HighlightPath:    "/videos/" + sourceName + "_highlight.mp4",
 		HighlightStartMs: 15_000,
 		HighlightEndMs:   75_000,
-		ASRRawResult: []core.Sentence{
-			{ID: 0, StartMs: 0, EndMs: 1_200, Text: "第一句台词"},
-			{ID: 1, StartMs: 1_200, EndMs: 2_400, Text: "第二句台词"},
-		},
-		LLMRawResponse: core.HighlightWindow{
-			NarrativeStructure: core.NarrativeStructure{
-				Setup:        [2]int{0, 1},
-				RisingAction: [2]int{2, 3},
-				Climax:       [2]int{4, 5},
-			},
-			StartID: 4,
-			EndID:   5,
-			Reason:  "冲突集中，适合做广告钩子",
-		},
+		ASRRawResult: json.RawMessage(`[` +
+			`{"id":0,"start_ms":0,"end_ms":1200,"text":"第一句台词"},` +
+			`{"id":1,"start_ms":1200,"end_ms":2400,"text":"第二句台词"}]`),
+		LLMRawResponse: json.RawMessage(`{` +
+			`"narrative_structure":{"setup":[0,1],"rising_action":[2,3],"climax":[4,5]},` +
+			`"start_id":4,"end_id":5,"reason":"冲突集中，适合做广告钩子"}`),
 		Status:    "success",
 		CreatedAt: createdAt,
 	}
