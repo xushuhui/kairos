@@ -65,17 +65,20 @@ func RunHighlightExtraction(videoPath string, config Config, transcriber Transcr
 	}()
 
 	audioPath := filepath.Join(tmpDir, "audio.wav")
+	config.reportProgress(StageExtractingAudio)
 	if extractErr := video.ExtractAudio(videoPath, audioPath); extractErr != nil {
 		return HighlightOutput{}, fmt.Errorf("提取音轨失败: %w: %w", ErrAudioExtractionFailed, extractErr)
 	}
 
 	var transcribeErr error
+	config.reportProgress(StageTranscribing)
 	sentences, transcribeErr = transcriber.Transcribe(audioPath)
 	if transcribeErr != nil {
 		return HighlightOutput{}, fmt.Errorf("转写台词失败: %w: %w", ErrTranscriptionFailed, transcribeErr)
 	}
 
 	var judgeErr error
+	config.reportProgress(StageJudging)
 	window, judgeErr = judge.Judge(sentences)
 	if judgeErr != nil {
 		return HighlightOutput{}, fmt.Errorf("判定高光失败: %w: %w", ErrLlmInvalidResponse, judgeErr)
@@ -99,6 +102,7 @@ func RunHighlightExtraction(videoPath string, config Config, transcriber Transcr
 
 	startMs, endMs := ComputeWindow(peakEndMs, targetLenMs, videoLenMs)
 
+	config.reportProgress(StageCutting)
 	if cutErr := video.CutClip(videoPath, startMs, endMs, outputPath); cutErr != nil {
 		return HighlightOutput{}, fmt.Errorf("剪辑高光片段失败: %w: %w", ErrClipExtractionFailed, cutErr)
 	}

@@ -1,0 +1,54 @@
+{
+  "product": "Kairos",
+  "company": "",
+  "license": "LICENSE.rtf",
+  "upgrade-code": "",
+  "files": {
+    "guid": "",
+    "items": [
+      "dist/kairos.exe",
+      "dist/ffmpeg.exe",
+      "dist/ffprobe.exe",
+      "dist/cudart64_110.dll",
+      "dist/cublas64_11.dll",
+      "dist/cublasLt64_11.dll",
+      "dist/cufft64_10.dll",
+      "dist/curand64_10.dll",
+      "dist/cudnn64_8.dll",
+      "dist/NVIDIA_REDIST_LICENSE.txt"
+    ]
+  },
+  "directories": [
+    "dist/models"
+  ],
+  "env": {
+    "guid": "",
+    "vars": [
+      {
+        "name": "PATH",
+        "value": "[INSTALLDIR]",
+        "permanent": "no",
+        "system": "no",
+        "action": "set",
+        "part": "last"
+      }
+    ]
+  },
+  "shortcuts": {
+    "guid": "",
+    "items": [
+      {
+        "name": "Kairos",
+        "description": "短剧高光片段自动提取",
+        "target": "[INSTALLDIR]\\kairos.exe",
+        "wdir": "INSTALLDIR"
+      }
+    ]
+  },
+  "choco": {
+    "description": "短剧高光片段自动提取 — 本地 ASR + DeepSeek 判定，自动剪出约 60 秒的广告钩子片段。",
+    "project-url": "",
+    "tags": "kairos short-drama video-highlight",
+    "license-url": ""
+  }
+}

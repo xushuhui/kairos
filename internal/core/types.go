@@ -37,6 +37,18 @@ type HighlightWindow struct {
 	Candidates         []CandidateWindow
 }
 
+// Stage 标识 RunHighlightExtraction() 处理流程中的一个阶段，供 GUI 层做
+// 分阶段进度展示（ticket 08：「处理进度分阶段展示：音轨提取中→识别台词中→
+// 判定高光中→剪辑中」）。
+type Stage string
+
+const (
+	StageExtractingAudio Stage = "音轨提取中"
+	StageTranscribing    Stage = "识别台词中"
+	StageJudging         Stage = "判定高光中"
+	StageCutting         Stage = "剪辑中"
+)
+
 // Config 是 RunHighlightExtraction() 的可选运行参数。零值字段一律有明确的
 // 默认值（见 defaultTargetLenMs / defaultOutputPath），调用方不需要每次都填全。
 type Config struct {
@@ -46,6 +58,17 @@ type Config struct {
 	// TargetLenMs 是高光片段的目标时长（毫秒）。留空（0）时默认 60000ms
 	// （spec.md「目标时长约 60 秒」）。
 	TargetLenMs uint64
+	// OnProgress 在每个阶段开始前被调用（同步、阻塞调用方所在的 goroutine，
+	// 不新开 goroutine——GUI 层需要自己决定要不要切回主线程更新界面）。
+	// nil 表示不关心进度，RunHighlightExtraction 不会因此报错。
+	OnProgress func(Stage)
+}
+
+// reportProgress 是 OnProgress 的 nil-safe 调用点。
+func (c Config) reportProgress(stage Stage) {
+	if c.OnProgress != nil {
+		c.OnProgress(stage)
+	}
 }
 
 // HighlightOutput 是 RunHighlightExtraction() 成功时的产出摘要。

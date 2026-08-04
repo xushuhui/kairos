@@ -111,6 +111,50 @@ func TestRunHighlightExtraction_MockFullFlow(t *testing.T) {
 	}
 }
 
+func TestRunHighlightExtraction_OnProgressReportsStagesInOrder(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	var stages []Stage
+	cfg := Config{
+		OutputPath:  filepath.Join(t.TempDir(), "clip.mp4"),
+		TargetLenMs: 2_000,
+		OnProgress:  func(s Stage) { stages = append(stages, s) },
+	}
+
+	if _, err := RunHighlightExtraction(src, cfg,
+		&fakeTranscriber{sentences: testSentences()},
+		&fakeJudge{window: HighlightWindow{EndID: 2}},
+	); err != nil {
+		t.Fatalf("RunHighlightExtraction() error = %v", err)
+	}
+
+	want := []Stage{StageExtractingAudio, StageTranscribing, StageJudging, StageCutting}
+	if len(stages) != len(want) {
+		t.Fatalf("got %d progress callbacks %v, want %d %v", len(stages), stages, len(want), want)
+	}
+	for i, s := range want {
+		if stages[i] != s {
+			t.Errorf("stage[%d] = %q, want %q", i, stages[i], s)
+		}
+	}
+}
+
+func TestRunHighlightExtraction_OnProgressNilIsSafe(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	cfg := Config{OutputPath: filepath.Join(t.TempDir(), "clip.mp4"), TargetLenMs: 2_000} // OnProgress left nil
+	if _, err := RunHighlightExtraction(src, cfg,
+		&fakeTranscriber{sentences: testSentences()},
+		&fakeJudge{window: HighlightWindow{EndID: 2}},
+	); err != nil {
+		t.Fatalf("RunHighlightExtraction() error = %v, want nil OnProgress to be a no-op, not a crash", err)
+	}
+}
+
 func TestRunHighlightExtraction_SourceFileMissing(t *testing.T) {
 	withTempHome(t)
 

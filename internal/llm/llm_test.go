@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,8 +122,14 @@ func TestDeepSeekJudge_Judge(t *testing.T) {
 		if len(gotReq.Messages) != 2 {
 			t.Fatalf("request has %d messages, want 2", len(gotReq.Messages))
 		}
-		if gotReq.Messages[0].Role != openai.ChatMessageRoleSystem || gotReq.Messages[0].Content != systemPrompt {
-			t.Errorf("system message = %+v, want fixed systemPrompt", gotReq.Messages[0])
+		wantSystem := systemPrompt + "\n\n" + jsonShapeInstruction
+		if gotReq.Messages[0].Role != openai.ChatMessageRoleSystem || gotReq.Messages[0].Content != wantSystem {
+			t.Errorf("system message = %+v, want fixed systemPrompt + jsonShapeInstruction", gotReq.Messages[0])
+		}
+		// DeepSeek 要求 response_format=json_object 时 prompt 里必须出现
+		// "json" 字样，否则直接 400（2026-08-03 真实 API 调用时发现）。
+		if !strings.Contains(strings.ToLower(gotReq.Messages[0].Content), "json") {
+			t.Error("system message doesn't contain \"json\", DeepSeek's json_object response_format requires it")
 		}
 		wantUser := "id, start_ms, end_ms, text\n1, 0, 1000, 从前有座山\n2, 1000, 2000, 山里有座庙\n"
 		if gotReq.Messages[1].Role != openai.ChatMessageRoleUser || gotReq.Messages[1].Content != wantUser {
@@ -197,6 +204,19 @@ func TestDeepSeekJudge_Judge(t *testing.T) {
 			t.Errorf("Judge() error = %v, want ErrLlmTimeout", err)
 		}
 	})
+
+	t.Run("API_Key_无效（401）返回_ErrInvalidAPIKey", func(t *testing.T) {
+		judge := newTestJudge(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}`))
+		})
+
+		_, err := judge.Judge(testSentences)
+		if !errors.Is(err, ErrInvalidAPIKey) {
+			t.Errorf("Judge() error = %v, want ErrInvalidAPIKey", err)
+		}
+	})
 }
 
 func TestLoadAPIKey(t *testing.T) {
@@ -253,6 +273,98 @@ func TestLoadAPIKey(t *testing.T) {
 		_, err := LoadAPIKey()
 		if err == nil {
 			t.Fatal("LoadAPIKey() error = nil, want non-nil")
+		}
+	})
+}
+
+// withTempConfigDir 把 userConfigDir 换成一个测试临时目录，避免真的写进
+// 这台机器的 %APPDATA%/kairos/。
+func withTempConfigDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	orig := userConfigDir
+	userConfigDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { userConfigDir = orig })
+	return dir
+}
+
+func TestSaveAPIKey(t *testing.T) {
+	t.Run("写入全新配置文件，LoadAPIKey 能读回", func(t *testing.T) {
+		withTempConfigDir(t)
+
+		if err := SaveAPIKey("sk-new-key"); err != nil {
+			t.Fatalf("SaveAPIKey() error = %v", err)
+		}
+		got, err := LoadAPIKey()
+		if err != nil {
+			t.Fatalf("LoadAPIKey() error = %v", err)
+		}
+		if got != "sk-new-key" {
+			t.Errorf("LoadAPIKey() = %q, want %q", got, "sk-new-key")
+		}
+	})
+
+	t.Run("不清空已有配置文件里其余字段", func(t *testing.T) {
+		dir := withTempConfigDir(t)
+		kairosDir := filepath.Join(dir, "kairos")
+		if err := os.MkdirAll(kairosDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		existing := `{"deepseek":{"api_key":"sk-old","use_credential_manager":true},"output":{"default_dir":"/videos"}}`
+		if err := os.WriteFile(filepath.Join(kairosDir, "config.json"), []byte(existing), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		if err := SaveAPIKey("sk-new"); err != nil {
+			t.Fatalf("SaveAPIKey() error = %v", err)
+		}
+
+		raw, err := os.ReadFile(filepath.Join(kairosDir, "config.json"))
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+
+		deepseek, _ := got["deepseek"].(map[string]any)
+		if deepseek["api_key"] != "sk-new" {
+			t.Errorf("deepseek.api_key = %v, want sk-new", deepseek["api_key"])
+		}
+		if deepseek["use_credential_manager"] != true {
+			t.Errorf("deepseek.use_credential_manager = %v, want true (preserved)", deepseek["use_credential_manager"])
+		}
+		output, _ := got["output"].(map[string]any)
+		if output["default_dir"] != "/videos" {
+			t.Errorf("output.default_dir = %v, want /videos (preserved)", output["default_dir"])
+		}
+	})
+
+	t.Run("空字符串报错", func(t *testing.T) {
+		withTempConfigDir(t)
+		if err := SaveAPIKey(""); err == nil {
+			t.Fatal("SaveAPIKey(\"\") error = nil, want non-nil")
+		}
+		if err := SaveAPIKey("   "); err == nil {
+			t.Fatal("SaveAPIKey(\"   \") error = nil, want non-nil")
+		}
+	})
+
+	t.Run("重复保存覆盖为最新值", func(t *testing.T) {
+		withTempConfigDir(t)
+		if err := SaveAPIKey("sk-first"); err != nil {
+			t.Fatalf("SaveAPIKey() error = %v", err)
+		}
+		if err := SaveAPIKey("sk-second"); err != nil {
+			t.Fatalf("SaveAPIKey() error = %v", err)
+		}
+		got, err := LoadAPIKey()
+		if err != nil {
+			t.Fatalf("LoadAPIKey() error = %v", err)
+		}
+		if got != "sk-second" {
+			t.Errorf("LoadAPIKey() = %q, want %q", got, "sk-second")
 		}
 	})
 }
