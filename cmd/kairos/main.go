@@ -22,7 +22,10 @@ func main() {
 
 	fyneApp := app.New()
 	a := newApp(fyneApp)
-	a.win.SetOnClosed(func() { slog.Info("kairos: shutting down") })
+	a.win.SetOnClosed(func() {
+		slog.Info("kairos: shutting down")
+		a.closeTranscriber()
+	})
 	a.win.Show()
 
 	if _, err := llm.LoadAPIKey(); err != nil {

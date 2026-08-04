@@ -130,6 +130,50 @@ func TestApp_StartProcessing_NoAPIKey_PromptsInsteadOfProcessing(t *testing.T) {
 	}
 }
 
+// countingTranscriber is a fakeTranscriber-shaped test double that counts
+// constructions and optionally tracks Close() calls.
+type countingTranscriber struct{ closed *bool }
+
+func (countingTranscriber) Transcribe(audioPath string) ([]core.Sentence, error) {
+	return nil, errors.New("not used in this test")
+}
+func (c countingTranscriber) Close() { *c.closed = true }
+
+func TestApp_GetTranscriber_ConstructsOnceAndCaches(t *testing.T) {
+	closed := false
+	calls := 0
+	a := &App{newTranscriber: func() core.Transcriber {
+		calls++
+		return countingTranscriber{closed: &closed}
+	}}
+
+	first := a.getTranscriber()
+	second := a.getTranscriber()
+
+	if calls != 1 {
+		t.Errorf("newTranscriber called %d times across two getTranscriber() calls, want 1 (cached)", calls)
+	}
+	if first != second {
+		t.Error("getTranscriber() returned a different instance on the second call, want the same cached one")
+	}
+}
+
+func TestApp_CloseTranscriber_ClosesCachedInstance(t *testing.T) {
+	closed := false
+	a := &App{transcriber: countingTranscriber{closed: &closed}}
+
+	a.closeTranscriber()
+
+	if !closed {
+		t.Error("closeTranscriber() did not call Close() on the cached transcriber")
+	}
+}
+
+func TestApp_CloseTranscriber_NilTranscriberIsSafe(t *testing.T) {
+	a := &App{} // transcriber never constructed (e.g. app closed before any run)
+	a.closeTranscriber()
+}
+
 func TestHistoryRowText(t *testing.T) {
 	rec := history.Record{
 		SourceName: "ep01.mp4",

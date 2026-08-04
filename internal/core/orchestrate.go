@@ -44,6 +44,17 @@ func RunHighlightExtraction(videoPath string, config Config, transcriber Transcr
 		targetLenMs = defaultTargetLenMs
 	}
 
+	// 先确保输出目录存在——两个原因：(1) CutClip() 底层是 ffmpeg 子进程写
+	// 文件，目标目录不存在时 ffmpeg 本身就会失败；(2) Windows 的
+	// GetDiskFreeSpaceExW 对不存在的路径直接报错（ERROR_PATH_NOT_FOUND），
+	// 跟 macOS/Linux 的 statfs 行为不一致——预检查发现的问题，之前只在
+	// "输出目录必然已存在"（默认值=源文件目录，或通过只能选已有文件夹的
+	// 系统对话框选出来）这个 GUI 层隐含假设下才成立，RunHighlightExtraction
+	// 作为可独立调用的编排入口不该依赖调用方顺带满足这个前提。
+	if mkdirErr := os.MkdirAll(filepath.Dir(outputPath), 0o755); mkdirErr != nil {
+		return HighlightOutput{}, fmt.Errorf("创建输出目录失败: %w", mkdirErr)
+	}
+
 	requiredBytes := uint64(info.Size()) * diskSpaceSafetyFactor
 	if spaceErr := checkDiskSpace(outputPath, requiredBytes); spaceErr != nil {
 		return HighlightOutput{}, spaceErr

@@ -111,6 +111,29 @@ func TestRunHighlightExtraction_MockFullFlow(t *testing.T) {
 	}
 }
 
+func TestRunHighlightExtraction_CreatesOutputDirIfMissing(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	// nested/missing 目录不预先创建——RunHighlightExtraction 自己必须建出来，
+	// 否则 CutClip 的 ffmpeg 子进程写不进一个不存在的目录会直接失败
+	// （预检查发现的问题：之前隐含依赖调用方/GUI 层保证输出目录已存在）。
+	outputPath := filepath.Join(t.TempDir(), "nested", "missing", "clip.mp4")
+	cfg := Config{OutputPath: outputPath, TargetLenMs: 2_000}
+
+	output, err := RunHighlightExtraction(src, cfg,
+		&fakeTranscriber{sentences: testSentences()},
+		&fakeJudge{window: HighlightWindow{EndID: 2}},
+	)
+	if err != nil {
+		t.Fatalf("RunHighlightExtraction() error = %v, want the missing output dir to be created automatically", err)
+	}
+	if _, statErr := os.Stat(output.OutputPath); statErr != nil {
+		t.Errorf("expected output clip at %s to exist: %v", output.OutputPath, statErr)
+	}
+}
+
 func TestRunHighlightExtraction_OnProgressReportsStagesInOrder(t *testing.T) {
 	testutil.RequireFfmpeg(t)
 	withTempHome(t)

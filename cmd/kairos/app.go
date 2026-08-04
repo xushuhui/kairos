@@ -42,6 +42,7 @@ type App struct {
 	win     fyne.Window
 
 	newTranscriber func() core.Transcriber // production wiring, platform-split (transcriber_windows.go / transcriber_other.go)
+	transcriber    core.Transcriber        // lazily constructed once, reused across runs (see getTranscriber)
 
 	dropLabel     *widget.Label
 	pathLabel     *widget.Label
@@ -240,7 +241,7 @@ func (a *App) startProcessing() {
 	a.statusLabel.SetText(string(core.StageExtractingAudio))
 
 	judge := llm.NewDeepSeekJudge(apiKey)
-	transcriber := a.newTranscriber()
+	transcriber := a.getTranscriber()
 
 	stageStart := time.Now()
 	runStart := stageStart
@@ -315,13 +316,44 @@ func openPreview(path string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", path)
+		// 直接调 explorer.exe 打开文件本身的默认关联程序，不走 cmd.exe：
+		// exec.Command 不经过 shell，参数按原样传给 CreateProcess，避免
+		// 之前 `cmd /c start "" path` 里 cmd.exe 自己的元字符解析
+		// （&、%、^、|、<、>）在文件名恰好包含这些字符时把命令解析错——
+		// 预检查发现的问题，本机是 macOS 走不到这条分支，无法直接跑
+		// TestOpenPreview_BuildsCommand 之外的真实验证。
+		cmd = exec.Command("explorer", path)
 	case "darwin":
 		cmd = exec.Command("open", path)
 	default:
 		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
+}
+
+// closeTranscriber releases the cached ASR model/GPU session on app
+// shutdown. core.Transcriber doesn't declare a Close() method (not every
+// implementation needs one — the mock/unsupported-platform ones don't hold
+// any real resource), so this uses an optional-interface type assertion to
+// call it only when the concrete type actually has one (production's
+// *asr.ParaformerTranscriber does).
+func (a *App) closeTranscriber() {
+	if closer, ok := a.transcriber.(interface{ Close() }); ok {
+		closer.Close()
+	}
+}
+
+// getTranscriber returns the cached transcriber, constructing it via
+// newTranscriber on first use — see the App.transcriber field's doc comment
+// for why this is cached rather than rebuilt per run. Extracted as its own
+// method (rather than inlined in startProcessing) so the caching behavior is
+// directly unit-testable without going through the full async processing
+// flow.
+func (a *App) getTranscriber() core.Transcriber {
+	if a.transcriber == nil {
+		a.transcriber = a.newTranscriber()
+	}
+	return a.transcriber
 }
 
 // promptForAPIKey shows the first-run / missing-key onboarding dialog
