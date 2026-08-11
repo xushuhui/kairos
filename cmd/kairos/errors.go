@@ -8,6 +8,15 @@ import (
 	"kairos/internal/llm"
 )
 
+// ErrUnsupportedPlatform is returned by newProductionTranscriber()'s stub
+// Transcribe() on any non-Windows build (see transcriber_other.go). Kairos
+// is a Windows-only product (map.md「Out of scope」: macOS/Linux 支持已确认
+// 不支持) — its ASR backend (github.com/k2-fsa/sherpa-onnx-go-windows) only
+// compiles on windows/amd64|386. Declared here, not in the //go:build
+// !windows-gated transcriber_other.go, because userMessage() below (which
+// compiles on every platform) needs to reference it too.
+var ErrUnsupportedPlatform = errors.New("kairos: local ASR requires the Windows-only sherpa-onnx backend")
+
 // userMessage 把 RunHighlightExtraction()（或启动期检查）返回的 error 映射
 // 成用户可读的中文提示，不把底层 ffmpeg/go-openai 报错原文直接展示给用户
 // （implementation-plan.md「错误处理策略」）。覆盖 ticket 08 要求的全部错误
