@@ -50,6 +50,7 @@ Full ticket definitions and design decisions live under [`docs/scratch/short-dra
 ## Requirements
 
 - Go 1.26+
+- On Windows: a cgo-capable C compiler (MinGW-w64 gcc), required to build `fyne.io/fyne/v2` (`go-gl/gl`) and `github.com/k2-fsa/sherpa-onnx-go-windows`. One-time setup: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` (allows local scripts to run), then `.\scripts\setup-cgo-toolchain.ps1`.
 - `ffmpeg`/`ffprobe` on `PATH` (dev/test only — the shipped installer bundles them)
 - To build/run for real on Windows: an NVIDIA GPU with CUDA support (falls back to CPU/`libx264` if unavailable) and the Paraformer-large + Silero VAD model files
 - A DeepSeek API key for `internal/llm`

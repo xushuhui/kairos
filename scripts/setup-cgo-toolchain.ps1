@@ -38,19 +38,28 @@ if (Test-CommandExists "gcc") {
         Write-Host "[skip] MSYS2 already installed at $msys2Root"
     }
 
-    # 3. Install the UCRT64 gcc package.
-    #    Uses `pacman -Sy` (sync db + install one package) instead of the full
-    #    `-Syu` system upgrade dance, which requires closing/reopening the
-    #    MSYS2 shell mid-update — not automatable from a single script call.
+    # 3. Point pacman at the TUNA (Tsinghua) mirror before syncing — the
+    #    default mirror.msys2.org redirect is slow from mainland China.
+    #    Idempotent: re-running the sed on an already-switched mirrorlist
+    #    is a harmless no-op (the matched pattern no longer exists).
+    Write-Host "[mirror] Switching pacman mirrorlist to TUNA..."
+    & "$msys2Root\usr\bin\bash.exe" -lc "sed -i 's#https\?://mirror.msys2.org/#https://mirrors.tuna.tsinghua.edu.cn/msys2/#g' /etc/pacman.d/mirrorlist*"
+
+    # 4. Install the UCRT64 gcc package.
+    #    Uses `pacman -Syy` (force-refresh db + install one package) instead
+    #    of the full `-Syu` system upgrade dance, which requires
+    #    closing/reopening the MSYS2 shell mid-update — not automatable
+    #    from a single script call. `-Syy` (not `-Sy`) forces pacman to
+    #    re-fetch the package db even though only the mirror URL changed.
     Write-Host "[install] mingw-w64-ucrt-x86_64-gcc via pacman..."
-    & "$msys2Root\usr\bin\bash.exe" -lc "pacman -Sy --noconfirm mingw-w64-ucrt-x86_64-gcc"
+    & "$msys2Root\usr\bin\bash.exe" -lc "pacman -Syy --noconfirm mingw-w64-ucrt-x86_64-gcc"
 
     $gccPath = "$msys2Root\ucrt64\bin"
     if (-not (Test-Path "$gccPath\gcc.exe")) {
         throw "gcc.exe not found at $gccPath after install. Check pacman output above."
     }
 
-    # 4. Add to the user PATH permanently (persists across new shells).
+    # 5. Add to the user PATH permanently (persists across new shells).
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$gccPath*") {
         Write-Host "[path] Adding $gccPath to user PATH..."
@@ -61,7 +70,7 @@ if (Test-CommandExists "gcc") {
     $env:Path = "$env:Path;$gccPath"
 }
 
-# 5. Enable cgo for the current user's Go environment.
+# 6. Enable cgo for the current user's Go environment.
 $cgoEnabled = go env CGO_ENABLED
 if ($cgoEnabled -ne "1") {
     Write-Host "[go env] Setting CGO_ENABLED=1..."

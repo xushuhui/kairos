@@ -50,6 +50,7 @@ English version: [README.md](./README.md).
 ## 依赖要求
 
 - Go 1.26+
+- Windows 上：需要一个支持 cgo 的 C 编译器（MinGW-w64 gcc），用来编译 `fyne.io/fyne/v2`（`go-gl/gl`）和 `github.com/k2-fsa/sherpa-onnx-go-windows`。一次性设置：先 `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`（允许本地脚本运行），再跑 `.\scripts\setup-cgo-toolchain.ps1`。
 - `ffmpeg`/`ffprobe` 在 `PATH` 上（仅开发/测试需要——正式安装包会内置）
 - 要在 Windows 上真正跑起来：一张支持 CUDA 的 NVIDIA 显卡（不可用时退化到 CPU/`libx264`），以及 Paraformer-large + Silero VAD 模型文件
 - 一个 DeepSeek API Key（`internal/llm` 需要）
