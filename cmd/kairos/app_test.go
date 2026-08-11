@@ -255,6 +255,8 @@ func TestUserMessage(t *testing.T) {
 		{"源文件缺失", core.ErrSourceFileMissing, "源文件不存在或处理过程中被移动/删除，请重新选择视频文件。"},
 		{"磁盘空间不足", core.ErrInsufficientDiskSpace, "磁盘空间不足，请清理磁盘后重试。"},
 		{"不支持的平台", ErrUnsupportedPlatform, "本地语音识别依赖 Windows 专属组件，当前系统不支持。"},
+		{"未识别到台词", core.ErrNoSpeechDetected, "未识别到有效台词，请确认视频包含清晰对白，或稍后重试。"},
+		{"台词文件写入失败", core.ErrTranscriptFileWriteFailed, "写入台词文件失败，请检查磁盘空间或视频所在目录的写入权限后重试。"},
 		{"API_Key_无效", llm.ErrInvalidAPIKey, "DeepSeek API Key 无效，请在设置中重新输入。"},
 	}
 	for _, c := range cases {

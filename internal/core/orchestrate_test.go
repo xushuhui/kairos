@@ -42,9 +42,11 @@ func (f *fakeTranscriber) Transcribe(audioPath string) ([]Sentence, error) {
 type fakeJudge struct {
 	window HighlightWindow
 	err    error
+	called bool
 }
 
 func (f *fakeJudge) Judge(sentences []Sentence) (HighlightWindow, error) {
+	f.called = true
 	if f.err != nil {
 		return HighlightWindow{}, f.err
 	}
@@ -266,6 +268,56 @@ func TestRunHighlightExtraction_TranscribeFailure(t *testing.T) {
 	records, _ := history.ListRecords()
 	if len(records) != 1 || records[0].Status != "failed" {
 		t.Errorf("history record = %+v, want 1 record with Status=failed", records)
+	}
+}
+
+// 转写"成功"但一句台词都没识别出来（VAD 没切出语音）——不该继续送空台词表
+// 给 judge.Judge()（真机验证遇到过 DeepSeek 对着空输入瞎猜、返回越界
+// end_id 的情况），也不该写出一个空的台词文件（用户会误以为是 bug）。
+func TestRunHighlightExtraction_NoSpeechDetected(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	judge := &fakeJudge{}
+	_, err := RunHighlightExtraction(src, Config{}, &fakeTranscriber{sentences: nil}, judge)
+	if !errors.Is(err, ErrNoSpeechDetected) {
+		t.Fatalf("RunHighlightExtraction() error = %v, want wrapping ErrNoSpeechDetected", err)
+	}
+	if judge.called {
+		t.Error("judge.Judge() was called with an empty sentence table, want it skipped entirely")
+	}
+	if _, statErr := os.Stat(transcriptFilePath(src)); !os.IsNotExist(statErr) {
+		t.Errorf("transcript file unexpectedly written for empty transcription result: stat error = %v", statErr)
+	}
+
+	records, _ := history.ListRecords()
+	if len(records) != 1 || records[0].Status != "failed" {
+		t.Errorf("history record = %+v, want 1 record with Status=failed", records)
+	}
+}
+
+// 用户明确要求「必须保证台词文件生成并且有内容再进行下一步」：写入台词
+// 文件失败必须硬性中止，不能进入 judge.Judge()。预先在目标路径造一个同名
+// 目录，让 os.WriteFile 必然因为"目标是目录"失败——这个手法跟平台/权限
+// 模型无关（哪怕以 root/管理员跑，往一个目录路径当文件写都会失败），
+// 比 chmod 只读目录更可靠。
+func TestRunHighlightExtraction_TranscriptFileWriteFailure(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	if err := os.MkdirAll(transcriptFilePath(src), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	judge := &fakeJudge{}
+	_, err := RunHighlightExtraction(src, Config{}, &fakeTranscriber{sentences: testSentences()}, judge)
+	if !errors.Is(err, ErrTranscriptFileWriteFailed) {
+		t.Fatalf("RunHighlightExtraction() error = %v, want wrapping ErrTranscriptFileWriteFailed", err)
+	}
+	if judge.called {
+		t.Error("judge.Judge() was called despite transcript file write failure, want it skipped")
 	}
 }
 

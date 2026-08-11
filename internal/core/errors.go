@@ -20,6 +20,18 @@ var (
 	ErrAudioExtractionFailed = errors.New("audio extraction failed")
 	// ErrTranscriptionFailed 表示 ASR 转写阶段失败。
 	ErrTranscriptionFailed = errors.New("transcription failed")
+	// ErrNoSpeechDetected 表示转写阶段本身没有报错，但一句台词都没识别出来
+	// （VAD 没切出任何语音片段，或识别结果为空）——跟 ErrTranscriptionFailed
+	// 是两类不同的失败：后者是转写过程本身出错（模型加载失败、推理异常），
+	// 前者是转写"成功"跑完但没有可用产出，原因更可能是音频内容本身没有清晰
+	// 对白，而不是显卡/模型的问题，需要给用户不同的提示文案。
+	ErrNoSpeechDetected = errors.New("no speech detected")
+	// ErrTranscriptFileWriteFailed 表示转写结果非空，但落盘到源视频同目录
+	// 的 {source}_台词.txt 失败（磁盘满、权限不足、目标路径被占用等）——
+	// 用户明确要求「必须保证台词文件生成并且有内容再进行下一步」，这里是
+	// 那道硬性前置校验失败时的分类，跟 ErrNoSpeechDetected（有没有内容）、
+	// ErrTranscriptionFailed（转写过程本身有没有出错）是三种互不重叠的失败。
+	ErrTranscriptFileWriteFailed = errors.New("transcript file write failed")
 	// ErrLlmTimeout 预留给 LLM 请求超时场景——core 本身不直接判定超时（避免
 	// 反向依赖 internal/llm 造成循环 import），但 Judge() 失败的原始错误会
 	// 经由 %w 链一路透传，知道具体注入实现的调用方（如未来的 cmd/kairos）

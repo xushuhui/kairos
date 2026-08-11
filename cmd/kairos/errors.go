@@ -41,6 +41,10 @@ func userMessage(err error) string {
 		return "高光判定失败，请稍后重试；如持续失败请检查 API Key 或网络。"
 	case errors.Is(err, core.ErrAudioExtractionFailed):
 		return "音轨提取失败，请确认视频文件未损坏。"
+	case errors.Is(err, core.ErrNoSpeechDetected):
+		return "未识别到有效台词，请确认视频包含清晰对白，或稍后重试。"
+	case errors.Is(err, core.ErrTranscriptFileWriteFailed):
+		return "写入台词文件失败，请检查磁盘空间或视频所在目录的写入权限后重试。"
 	case errors.Is(err, core.ErrTranscriptionFailed):
 		return "台词识别失败，请检查显卡驱动是否正常或稍后重试。"
 	case errors.Is(err, core.ErrVideoInspectionFailed):

@@ -87,7 +87,16 @@ func RunHighlightExtraction(videoPath string, config Config, transcriber Transcr
 	if transcribeErr != nil {
 		return HighlightOutput{}, fmt.Errorf("转写台词失败: %w: %w", ErrTranscriptionFailed, transcribeErr)
 	}
-	writeTranscriptFile(videoPath, sentences)
+	if len(sentences) == 0 {
+		// 转写没报错，但一句台词都没识别出来——在这里拦下，不写出一个空的
+		// 台词文件（用户会疑惑"这是不是 bug"），也不把空台词表送给 DeepSeek
+		// 判定（送了也只会是无意义调用，之前真机验证时出现过 DeepSeek 对着
+		// 空输入瞎猜返回一个越界 end_id 的情况，报错信息完全没指向真正原因）。
+		return HighlightOutput{}, fmt.Errorf("转写结果为空: %w", ErrNoSpeechDetected)
+	}
+	if writeErr := writeTranscriptFile(videoPath, sentences); writeErr != nil {
+		return HighlightOutput{}, fmt.Errorf("台词文件写入失败: %w: %w", ErrTranscriptFileWriteFailed, writeErr)
+	}
 
 	var judgeErr error
 	config.reportProgress(StageJudging)
@@ -155,9 +164,10 @@ func transcriptFilePath(videoPath string) string {
 
 // writeTranscriptFile 把转写结果落盘为纯文本（一句台词一行，跟历史详情弹窗
 // formatTranscript() 的展示格式一致），在判定高光之前调用——分离"转写"和
-// "判定"两个步骤的落地产物。写入失败只记日志、不中断主流程：这是旁路产物，
-// 逻辑对齐 writeHistoryRecord()"失败不掩盖真正处理结果"的原则。
-func writeTranscriptFile(videoPath string, sentences []Sentence) {
+// "判定"两个步骤的落地产物。用户明确要求「必须保证台词文件生成并且有内容
+// 再进行下一步」：写入失败是硬性错误，调用方必须中止、不进入
+// judge.Judge()，不是原来那种"记日志、不中断主流程"的旁路降级。
+func writeTranscriptFile(videoPath string, sentences []Sentence) error {
 	var b strings.Builder
 	for _, s := range sentences {
 		b.WriteString(s.Text)
@@ -165,8 +175,9 @@ func writeTranscriptFile(videoPath string, sentences []Sentence) {
 	}
 	path := transcriptFilePath(videoPath)
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
-		slog.Warn("core: failed to write transcript file", "path", path, "error", err)
+		return fmt.Errorf("写入 %s 失败: %w", path, err)
 	}
+	return nil
 }
 
 // diskFreeBytes 是 freeBytes 的可替换点，测试用它注入假的可用空间数值，

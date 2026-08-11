@@ -4,6 +4,7 @@ package asr
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	sherpa "github.com/k2-fsa/sherpa-onnx-go-windows"
@@ -33,8 +34,13 @@ const (
 	// featureDim 是 sherpa-onnx 官方预训练模型固定期望的特征维度
 	// （sherpa.FeatureConfig 文档原话："It is 80 for all pre-trained models
 	// provided by us"）。
-	featureDim           = 80
-	vadBufferSizeSeconds = 30
+	featureDim = 80
+	// vadBufferSizeSeconds 覆盖 spec.md 约定的源视频时长上限（1-3 分钟）
+	// 再留出余量——原值 30 太小，真机验证时对 1 分钟以上素材稳定触发
+	// sherpa-onnx 内部 circular-buffer 的 "Overflow...Increase capacity to"
+	// 日志（自动扩容、sherpa-onnx 自己保证 "No data loss"，不是正确性 bug，
+	// 但每次都要重新分配+拷贝，且日志噪音掩盖真正需要关注的问题）。
+	vadBufferSizeSeconds = 300
 )
 
 // ParaformerTranscriber 用 sherpa-onnx 加载本地 Paraformer-large 离线识别模型
@@ -63,11 +69,18 @@ func NewParaformerTranscriber(modelDir string, useCuda bool) (*ParaformerTranscr
 
 	recognizer, err := newOfflineRecognizer(modelDir, provider)
 	if err != nil && provider == "cuda" {
-		recognizer, err = newOfflineRecognizer(modelDir, "cpu")
+		slog.Warn("asr: cuda provider init failed, falling back to cpu", "error", err)
+		provider = "cpu"
+		recognizer, err = newOfflineRecognizer(modelDir, provider)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("asr: 加载 Paraformer 识别模型失败: %w", err)
 	}
+	// sherpa-onnx 的 CUDA 初始化失败信息只打到原生 stderr（"Please compile
+	// with -DSHERPA_ONNX_ENABLE_GPU=ON...Fallback to cpu!" 这类），生产
+	// build 用 -H windowsgui 隐藏控制台窗口后用户根本看不到——这里显式记进
+	// app.log，是唯一能确认"这次到底是不是真的在用 GPU"的地方。
+	slog.Info("asr: paraformer recognizer initialized", "provider", provider)
 
 	vad := sherpa.NewVoiceActivityDetector(&sherpa.VadModelConfig{
 		SileroVad: sherpa.SileroVadModelConfig{
