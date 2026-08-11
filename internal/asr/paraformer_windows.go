@@ -41,6 +41,14 @@ const (
 	// 日志（自动扩容、sherpa-onnx 自己保证 "No data loss"，不是正确性 bug，
 	// 但每次都要重新分配+拷贝，且日志噪音掩盖真正需要关注的问题）。
 	vadBufferSizeSeconds = 300
+	// vadWindowSize 是喂给 Silero-VAD 每次 AcceptWaveform 调用的样本数
+	// （16kHz 下 512 样本 = 32ms）——必须跟下面 SileroVadModelConfig.WindowSize
+	// 保持一致，Transcribe() 按这个粒度分块喂音频，不能改成一次性喂整段
+	// （见 Transcribe() 的 doc comment，这是真机排查定位到的根因）。
+	vadWindowSize = 512
+	// minSegmentDurationSec 是丢弃 VAD 切出的过短片段的阈值，跟 sherpa-onnx
+	// 官方参考实现（sherpa-onnx-vad-with-offline-asr.cc）用的 0.1 秒一致。
+	minSegmentDurationSec = 0.1
 )
 
 // ParaformerTranscriber 用 sherpa-onnx 加载本地 Paraformer-large 离线识别模型
@@ -88,7 +96,7 @@ func NewParaformerTranscriber(modelDir string, useCuda bool) (*ParaformerTranscr
 			Threshold:          0.5,
 			MinSilenceDuration: 0.5,
 			MinSpeechDuration:  0.25,
-			WindowSize:         512,
+			WindowSize:         vadWindowSize,
 			MaxSpeechDuration:  20,
 		},
 		SampleRate: audioSampleRate,
@@ -162,6 +170,14 @@ func (p *ParaformerTranscriber) Close() {
 // Transcribe 读取 audioPath 指向的 WAV 音频，先跑 VAD 切出语音片段，
 // 再对每个片段跑 Paraformer 推理拿字级 token + 时间戳，最后用标点恢复模型
 // 给拼接文本加标点、定位句末边界，调 mergeWordsToSentences 合并为句级 core.Sentence。
+//
+// VAD 必须按 vadWindowSize（512 样本 = 32ms）分块喂，每块喂完立刻排空
+// p.vad 里已经切好的片段——不能像最初实现那样把整段音频（哪怕补了尾部静音）
+// 一次性丢给 AcceptWaveform() 再统一排空。这不是猜的，是拿一段真实 52 秒
+// 短剧素材实测出来的：一次性喂整段，VAD 稳定切出 0 个语音片段；改成按窗口
+// 分块喂 + 逐块排空后，同一段音频、同一个模型文件，能正确切出 5 段对白。
+// 分块循环逻辑直接照抄 sherpa-onnx 官方 C++ 参考实现
+// （sherpa-onnx-vad-with-offline-asr.cc 的 main 循环），不是自己猜的写法。
 func (p *ParaformerTranscriber) Transcribe(audioPath string) ([]core.Sentence, error) {
 	wave := sherpa.ReadWave(audioPath)
 	if wave == nil {
@@ -169,23 +185,39 @@ func (p *ParaformerTranscriber) Transcribe(audioPath string) ([]core.Sentence, e
 	}
 
 	p.vad.Reset()
-	p.vad.AcceptWaveform(wave.Samples)
-	p.vad.Flush()
 
 	var words []WordToken
-	for !p.vad.IsEmpty() {
-		segment := p.vad.Front()
-		p.vad.Pop()
+	samples := wave.Samples
+	for i := 0; i < len(samples); i += vadWindowSize {
+		if end := i + vadWindowSize; end <= len(samples) {
+			p.vad.AcceptWaveform(samples[i:end])
+		} else {
+			// 剩余样本不足一整个窗口——Flush() 强制处理这段尾巴，避免
+			// 贴着音频结束边界的最后一段对白因为凑不满一个完整窗口而丢失。
+			p.vad.Flush()
+		}
 
-		stream := sherpa.NewOfflineStream(p.recognizer)
-		stream.AcceptWaveform(wave.SampleRate, segment.Samples)
-		p.recognizer.Decode(stream)
-		result := stream.GetResult()
-		sherpa.DeleteOfflineStream(stream)
+		for !p.vad.IsEmpty() {
+			segment := p.vad.Front()
+			segmentDurationSec := float64(len(segment.Samples)) / float64(wave.SampleRate)
+			if segmentDurationSec < minSegmentDurationSec {
+				// 太短的片段大多是 VAD 误触发的噪声毛刺，跑一次 Paraformer
+				// 推理纯属浪费——跟官方参考实现（同一个 0.1 秒阈值）保持一致。
+				p.vad.Pop()
+				continue
+			}
 
-		segmentStartMs := uint64(float64(segment.Start) / float64(wave.SampleRate) * 1000)
-		segmentEndMs := segmentStartMs + uint64(float64(len(segment.Samples))/float64(wave.SampleRate)*1000)
-		words = append(words, tokensToWords(result, segmentStartMs, segmentEndMs)...)
+			stream := sherpa.NewOfflineStream(p.recognizer)
+			stream.AcceptWaveform(wave.SampleRate, segment.Samples)
+			p.recognizer.Decode(stream)
+			result := stream.GetResult()
+			sherpa.DeleteOfflineStream(stream)
+
+			segmentStartMs := uint64(float64(segment.Start) / float64(wave.SampleRate) * 1000)
+			segmentEndMs := segmentStartMs + uint64(segmentDurationSec*1000)
+			words = append(words, tokensToWords(result, segmentStartMs, segmentEndMs)...)
+			p.vad.Pop()
+		}
 	}
 
 	if len(words) == 0 {
