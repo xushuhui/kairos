@@ -14,6 +14,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 
+	"kairos/internal/apppath"
 	"kairos/internal/core"
 )
 
@@ -222,16 +223,12 @@ func TestDeepSeekJudge_Judge(t *testing.T) {
 func TestLoadAPIKey(t *testing.T) {
 	t.Run("从配置目录正确读取 api_key", func(t *testing.T) {
 		dir := t.TempDir()
-		origUserConfigDir := userConfigDir
-		userConfigDir = func() (string, error) { return dir, nil }
-		t.Cleanup(func() { userConfigDir = origUserConfigDir })
+		origDir := apppath.Dir
+		apppath.Dir = func() (string, error) { return dir, nil }
+		t.Cleanup(func() { apppath.Dir = origDir })
 
-		kairosDir := filepath.Join(dir, "kairos")
-		if err := os.MkdirAll(kairosDir, 0o755); err != nil {
-			t.Fatalf("MkdirAll: %v", err)
-		}
 		cfgJSON := `{"deepseek": {"api_key": "sk-test-abc123"}}`
-		if err := os.WriteFile(filepath.Join(kairosDir, "config.json"), []byte(cfgJSON), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfgJSON), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -246,9 +243,9 @@ func TestLoadAPIKey(t *testing.T) {
 
 	t.Run("配置文件不存在时报错", func(t *testing.T) {
 		dir := t.TempDir()
-		origUserConfigDir := userConfigDir
-		userConfigDir = func() (string, error) { return dir, nil }
-		t.Cleanup(func() { userConfigDir = origUserConfigDir })
+		origDir := apppath.Dir
+		apppath.Dir = func() (string, error) { return dir, nil }
+		t.Cleanup(func() { apppath.Dir = origDir })
 
 		_, err := LoadAPIKey()
 		if err == nil {
@@ -258,15 +255,11 @@ func TestLoadAPIKey(t *testing.T) {
 
 	t.Run("api_key 为空时报错", func(t *testing.T) {
 		dir := t.TempDir()
-		origUserConfigDir := userConfigDir
-		userConfigDir = func() (string, error) { return dir, nil }
-		t.Cleanup(func() { userConfigDir = origUserConfigDir })
+		origDir := apppath.Dir
+		apppath.Dir = func() (string, error) { return dir, nil }
+		t.Cleanup(func() { apppath.Dir = origDir })
 
-		kairosDir := filepath.Join(dir, "kairos")
-		if err := os.MkdirAll(kairosDir, 0o755); err != nil {
-			t.Fatalf("MkdirAll: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(kairosDir, "config.json"), []byte(`{"deepseek": {"api_key": ""}}`), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"deepseek": {"api_key": ""}}`), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -277,14 +270,14 @@ func TestLoadAPIKey(t *testing.T) {
 	})
 }
 
-// withTempConfigDir 把 userConfigDir 换成一个测试临时目录，避免真的写进
-// 这台机器的 %APPDATA%/kairos/。
+// withTempConfigDir 把 apppath.Dir 换成一个测试临时目录，避免真的写进
+// 这台机器上编译出的测试二进制所在目录。
 func withTempConfigDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	orig := userConfigDir
-	userConfigDir = func() (string, error) { return dir, nil }
-	t.Cleanup(func() { userConfigDir = orig })
+	orig := apppath.Dir
+	apppath.Dir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { apppath.Dir = orig })
 	return dir
 }
 
@@ -306,12 +299,8 @@ func TestSaveAPIKey(t *testing.T) {
 
 	t.Run("不清空已有配置文件里其余字段", func(t *testing.T) {
 		dir := withTempConfigDir(t)
-		kairosDir := filepath.Join(dir, "kairos")
-		if err := os.MkdirAll(kairosDir, 0o755); err != nil {
-			t.Fatalf("MkdirAll: %v", err)
-		}
 		existing := `{"deepseek":{"api_key":"sk-old","model":"deepseek-chat"},"output":{"default_dir":"/videos"}}`
-		if err := os.WriteFile(filepath.Join(kairosDir, "config.json"), []byte(existing), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(existing), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 
@@ -319,7 +308,7 @@ func TestSaveAPIKey(t *testing.T) {
 			t.Fatalf("SaveAPIKey() error = %v", err)
 		}
 
-		raw, err := os.ReadFile(filepath.Join(kairosDir, "config.json"))
+		raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
 		if err != nil {
 			t.Fatalf("ReadFile: %v", err)
 		}

@@ -81,7 +81,20 @@ kairos/
 
 ## Configuration
 
-API key and output settings live in a local JSON file (`os.UserConfigDir()/kairos/config.json`, i.e. `%APPDATA%\kairos\config.json` on Windows):
+Kairos is self-contained/portable: config, history, and logs all live next to the running executable, not in a per-OS user profile directory. Given `kairos.exe` at some directory, the layout is:
+
+```
+<exe dir>/
+├── kairos.exe
+├── config.json      DeepSeek API key + output settings
+├── history/         one JSON file per processed video (success or failure)
+├── logs/
+│   ├── app.log       full log (every level)
+│   └── error.log     Error-level only, for quick manual inspection
+└── models/           bundled Paraformer/Silero-VAD/punctuation ONNX models
+```
+
+`config.json`:
 
 ```json
 {

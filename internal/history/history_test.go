@@ -7,16 +7,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"kairos/internal/apppath"
 )
 
-// withTempConfigDir 把 userConfigDir 替换为一个测试临时目录，避免测试写入
-// 本机真实的 %APPDATA%；调用结束后自动恢复。
+// withTempConfigDir 把 apppath.Dir 替换为一个测试临时目录，避免测试写入
+// 这台机器上编译出的测试二进制所在目录；调用结束后自动恢复。
 func withTempConfigDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	orig := userConfigDir
-	userConfigDir = func() (string, error) { return dir, nil }
-	t.Cleanup(func() { userConfigDir = orig })
+	orig := apppath.Dir
+	apppath.Dir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { apppath.Dir = orig })
 	return dir
 }
 
@@ -46,7 +48,7 @@ func TestWriteRecordRoundTrip(t *testing.T) {
 		t.Fatalf("WriteRecord() error = %v", err)
 	}
 
-	histDir := filepath.Join(dir, "kairos", "history")
+	histDir := filepath.Join(dir, "history")
 	entries, err := os.ReadDir(histDir)
 	if err != nil {
 		t.Fatalf("ReadDir(%s) error = %v", histDir, err)
@@ -123,7 +125,7 @@ func sourceNames(records []Record) []string {
 
 func TestWriteAndListRecordsAutoCreateHistoryDir(t *testing.T) {
 	dir := withTempConfigDir(t)
-	histDir := filepath.Join(dir, "kairos", "history")
+	histDir := filepath.Join(dir, "history")
 
 	if _, err := os.Stat(histDir); !os.IsNotExist(err) {
 		t.Fatalf("history dir unexpectedly pre-exists before test: %v", err)
@@ -143,12 +145,12 @@ func TestWriteAndListRecordsAutoCreateHistoryDir(t *testing.T) {
 
 	// 再用一个全新的临时目录验证 WriteRecord 同样能自动创建。
 	dir2 := t.TempDir()
-	userConfigDir = func() (string, error) { return dir2, nil }
+	apppath.Dir = func() (string, error) { return dir2, nil }
 
 	if err := WriteRecord(sampleRecord("ep01.mp4", time.Now())); err != nil {
 		t.Fatalf("WriteRecord() on missing dir error = %v", err)
 	}
-	if info, err := os.Stat(filepath.Join(dir2, "kairos", "history")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(dir2, "history")); err != nil || !info.IsDir() {
 		t.Fatalf("history dir not auto-created by WriteRecord(): stat error = %v", err)
 	}
 }
@@ -160,7 +162,7 @@ func TestListRecordsSkipsMalformedFile(t *testing.T) {
 		t.Fatalf("WriteRecord() error = %v", err)
 	}
 
-	histDir := filepath.Join(dir, "kairos", "history")
+	histDir := filepath.Join(dir, "history")
 	badPath := filepath.Join(histDir, "20260730-100000.000_corrupt.json")
 	if err := os.WriteFile(badPath, []byte("{not valid json"), 0o644); err != nil {
 		t.Fatalf("WriteFile(bad record) error = %v", err)

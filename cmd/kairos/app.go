@@ -89,12 +89,12 @@ func (a *App) build() {
 	a.outputEntry = widget.NewEntry()
 	a.outputEntry.PlaceHolder = "输出目录（默认与源文件同目录）"
 	changeBtn := widget.NewButton("更改…", a.browseForOutputDir)
-	// "使用此目录" 而不是"开始处理"——这个按钮代表"确定输出目录"这个选择动作
+	// "确定" 而不是"开始处理"——这个按钮代表"确定输出目录"这个选择动作
 	// 本身，不是一个独立于该选择之外的"开始"按钮（ticket 08：「没有独立的
 	// '开始'按钮——第 2 步的选择动作本身就是触发点」），跟"更改…"打开
 	// dialog.ShowFolderOpen() 完成后自动触发处理是同一类动作，只是默认值
 	// 这条路径需要一次点击来表达"确定用这个"。
-	confirmBtn := widget.NewButton("使用此目录", a.startProcessing)
+	confirmBtn := widget.NewButton("确定", a.startProcessing)
 	outputRow := container.NewBorder(nil, nil, nil, container.NewHBox(changeBtn, confirmBtn), a.outputEntry)
 	a.outputSection = container.NewVBox(widget.NewLabel("输出目录："), outputRow)
 	a.outputSection.Hide() // 选定输入文件后才出现（spec.md 用户故事 5）
@@ -206,7 +206,7 @@ func (a *App) browseForOutputDir() {
 }
 
 // startProcessing is the sole trigger point for RunHighlightExtraction —
-// reached either by clicking "使用此目录" (accepting whatever is currently
+// reached either by clicking "确定" (accepting whatever is currently
 // in outputEntry, which defaults to the source directory) or by completing
 // the folder-change dialog. There is no separate "开始" button beyond this
 // (ticket 08).

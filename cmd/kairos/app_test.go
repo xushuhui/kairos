@@ -12,20 +12,22 @@ import (
 
 	"fyne.io/fyne/v2/test"
 
+	"kairos/internal/apppath"
 	"kairos/internal/core"
 	"kairos/internal/history"
 	"kairos/internal/llm"
 )
 
-// withTempHome redirects os.UserConfigDir() (used by internal/history and
+// withTempHome redirects apppath.Dir (used by internal/history and
 // internal/llm) to a throwaway temp dir, mirroring internal/core's own test
-// helper — headless GUI tests must not touch this machine's real
-// %APPDATA%/kairos/.
+// helper — headless GUI tests must not touch wherever `go test` happens to
+// compile this test binary.
 func withTempHome(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("AppData", dir)
+	orig := apppath.Dir
+	apppath.Dir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { apppath.Dir = orig })
 }
 
 func TestIsVideoFile(t *testing.T) {

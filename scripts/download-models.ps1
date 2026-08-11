@@ -13,10 +13,11 @@
     at its expected path/name instead of re-downloading.
 
 .PARAMETER OutDir
-    Directory that receives a `models\` subdirectory. Defaults to `bin\`
-    (matching scripts/build-dev.ps1's build output), so on a fresh dev box
-    you can run this once and scripts/build-dev.ps1 afterwards and have a
-    runnable kairos.exe with everything next to it.
+    Directory that receives a `models\` subdirectory. Defaults to the repo
+    root (matching scripts/build-dev.ps1's build output — kairos.exe lands
+    there too, not in a bin\ subfolder), so on a fresh dev box you can run
+    this once and scripts/build-dev.ps1 afterwards and have a runnable
+    kairos.exe with everything next to it.
 
 .NOTES
     FunASR Model License — commercial use requires attributing
@@ -24,7 +25,7 @@
 #>
 
 param(
-    [string]$OutDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "bin")
+    [string]$OutDir = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = "Stop"

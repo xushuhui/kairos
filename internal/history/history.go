@@ -1,4 +1,4 @@
-// Package history 用 JSON 旁路文件（%APPDATA%/kairos/history/）记录每次处理的
+// Package history 用 JSON 旁路文件（exe 同目录下的 history/）记录每次处理的
 // 业务级摘要，不用 SQLite——数据量小（单机单团队，一天几十条记录量级），
 // 文件系统扫描的性能跟数据库查询没有实质差别，换来的是省一个 cgo 依赖
 // （mattn/go-sqlite3）。不提供删除/导出功能（已确认不做，见 spec.md 本地存储一节）。
@@ -12,15 +12,13 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"kairos/internal/apppath"
 )
 
 // timestampLayout 是历史文件名里时间戳部分的格式：文件系统安全（无冒号等非法字符），
 // 且按字典序排列即等价于按时间排列。
 const timestampLayout = "20060102-150405.000"
-
-// userConfigDir 是 os.UserConfigDir 的可替换点，测试用它注入临时目录，
-// 避免真的写入本机的 %APPDATA%。
-var userConfigDir = os.UserConfigDir
 
 // Record 是一次处理（成功或失败）的业务级摘要，字段列表见
 // docs/scratch/short-drama-highlight-clip/spec.md 本地存储一节。
@@ -44,15 +42,15 @@ type Record struct {
 	CreatedAt        time.Time       `json:"created_at"`
 }
 
-// historyDir 解析 %APPDATA%/kairos/history/ 目录，不存在时自动创建，
+// historyDir 解析 exe 同目录下的 history/ 目录，不存在时自动创建，
 // 供 WriteRecord/ListRecords 共用。
 func historyDir() (string, error) {
-	base, err := userConfigDir()
+	base, err := apppath.Dir()
 	if err != nil {
-		return "", fmt.Errorf("resolve user config dir: %w", err)
+		return "", fmt.Errorf("resolve app dir: %w", err)
 	}
 
-	dir := filepath.Join(base, "kairos", "history")
+	dir := filepath.Join(base, "history")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create history dir: %w", err)
 	}

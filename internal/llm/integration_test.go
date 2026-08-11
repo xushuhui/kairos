@@ -38,10 +38,9 @@ func TestDeepSeekJudge_Judge_RealAPI(t *testing.T) {
 
 	judge := NewDeepSeekJudge(apiKey)
 	// 2026-08-03 实测：DeepSeek 当前负载下（"Service is too busy"）单次请求
-	// 实测耗时可达 45s+，超过 spec.md 定的 30s 生产默认超时——这里只为了跑通
-	// 这次人工验证临时调大，不改生产代码的 defaultTimeout（30s 是团队已确认
-	// 的决策，要不要因为这个实测数据调整，是产品层面的取舍，不是我能单方面
-	// 改的 bug）。
+	// 实测耗时可达 45s+。2026-08-11 生产默认超时已从 30s 调到 60s（用户
+	// 真机实测触发过 ErrLlmTimeout 后明确要求），这里仍显式设成比生产默认
+	// 更宽松的 90s，给这条真实网络的人工验证留够余量，不依赖会变的默认值。
 	judge.timeout = 90 * time.Second
 	got, err := judge.Judge(sentences)
 	if err != nil {

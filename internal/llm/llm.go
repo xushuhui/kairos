@@ -15,6 +15,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 
+	"kairos/internal/apppath"
 	"kairos/internal/core"
 )
 
@@ -22,8 +23,12 @@ const (
 	deepSeekBaseURL = "https://api.deepseek.com"
 	deepSeekModel   = "deepseek-v4-flash"
 
-	// defaultTimeout 是单次 DeepSeek 请求的超时上限，见 spec.md「云端 LLM 接入」。
-	defaultTimeout = 30 * time.Second
+	// defaultTimeout 是单次 DeepSeek 请求的超时上限。spec.md 原定 30s，
+	// 2026-08-11 用户在真机上实测遇到 elapsed=30.29s 的 ErrLlmTimeout（真实
+	// 网络延迟触发，非代码 bug——internal/llm/integration_test.go 里
+	// TestDeepSeekJudge_Judge_RealAPI 更早（2026-08-03）就已经记录过
+	// "实测耗时可达 45s+" 这个现象），用户明确要求调大到 60s。
+	defaultTimeout = 60 * time.Second
 
 	// systemPrompt 是固定角色设定，逐字取自 spec.md「### LLM Prompt 结构」，不得改写。
 	systemPrompt = "你是短剧广告投放剪辑师，从带编号的台词列表中先识别开端/发展/高潮/结局的叙事结构作为背景参考，" +
@@ -56,9 +61,6 @@ var ErrLlmTimeout = errors.New("llm: DeepSeek 请求超时")
 // 返回——GUI 层（cmd/kairos）据此跟其余"高光判定失败"场景区分开，提示用户
 // 去设置里重新输入 Key，而不是笼统地说"判定失败，稍后重试"。
 var ErrInvalidAPIKey = errors.New("llm: DeepSeek API Key 无效")
-
-// userConfigDir 是 os.UserConfigDir 的可替换指向，供测试注入临时目录。
-var userConfigDir = os.UserConfigDir
 
 // DeepSeekJudge 通过 DeepSeek V4-flash（OpenAI 兼容接口）实现 core.HighlightJudge。
 type DeepSeekJudge struct {
@@ -182,14 +184,14 @@ type apiKeyConfig struct {
 	} `json:"deepseek"`
 }
 
-// LoadAPIKey 从标准配置目录（os.UserConfigDir()/kairos/config.json）读取 DeepSeek API Key。
+// LoadAPIKey 从 exe 同目录的 config.json 读取 DeepSeek API Key。
 func LoadAPIKey() (string, error) {
-	dir, err := userConfigDir()
+	dir, err := apppath.Dir()
 	if err != nil {
 		return "", fmt.Errorf("llm: 无法定位配置目录: %w", err)
 	}
 
-	path := filepath.Join(dir, "kairos", "config.json")
+	path := filepath.Join(dir, "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("llm: 读取配置文件失败: %w", err)
@@ -206,7 +208,7 @@ func LoadAPIKey() (string, error) {
 	return cfg.DeepSeek.APIKey, nil
 }
 
-// SaveAPIKey 把 apiKey 写入标准配置目录的 config.json（deepseek.api_key
+// SaveAPIKey 把 apiKey 写入 exe 同目录的 config.json（deepseek.api_key
 // 字段），供 GUI 首次运行引导流程调用（ticket 08）。已存在的配置文件会先
 // 读出来再改写对应字段，不清空文件里其余尚未使用到的字段（如
 // output.default_dir）——用 map[string]json.RawMessage 做通用合并，不需要
@@ -216,15 +218,11 @@ func SaveAPIKey(apiKey string) error {
 		return errors.New("llm: api key 不能为空")
 	}
 
-	dir, err := userConfigDir()
+	dir, err := apppath.Dir()
 	if err != nil {
 		return fmt.Errorf("llm: 无法定位配置目录: %w", err)
 	}
-	confDir := filepath.Join(dir, "kairos")
-	if err := os.MkdirAll(confDir, 0o755); err != nil {
-		return fmt.Errorf("llm: 创建配置目录失败: %w", err)
-	}
-	path := filepath.Join(confDir, "config.json")
+	path := filepath.Join(dir, "config.json")
 
 	raw := map[string]json.RawMessage{}
 	if data, readErr := os.ReadFile(path); readErr == nil {

@@ -87,6 +87,7 @@ func RunHighlightExtraction(videoPath string, config Config, transcriber Transcr
 	if transcribeErr != nil {
 		return HighlightOutput{}, fmt.Errorf("转写台词失败: %w: %w", ErrTranscriptionFailed, transcribeErr)
 	}
+	writeTranscriptFile(videoPath, sentences)
 
 	var judgeErr error
 	config.reportProgress(StageJudging)
@@ -139,6 +140,33 @@ func defaultOutputPath(videoPath string) string {
 	ext := filepath.Ext(videoPath)
 	base := strings.TrimSuffix(filepath.Base(videoPath), ext)
 	return filepath.Join(filepath.Dir(videoPath), base+"_highlight.mp4")
+}
+
+// transcriptFilePath 是转写台词文件的固定位置：源视频同目录下
+// {source}_台词.txt（用户明确要求：转写台词和发给 DeepSeek 判定是两个独立
+// 步骤，台词要单独落盘在视频旁边，不依赖 DeepSeek 调用是否成功——尤其是
+// DeepSeek 网络超时/限流时，ASR 这一步的产出不该跟着丢，用户还能凭这份
+// 文件人工判断或者重跑判定）。
+func transcriptFilePath(videoPath string) string {
+	ext := filepath.Ext(videoPath)
+	base := strings.TrimSuffix(filepath.Base(videoPath), ext)
+	return filepath.Join(filepath.Dir(videoPath), base+"_台词.txt")
+}
+
+// writeTranscriptFile 把转写结果落盘为纯文本（一句台词一行，跟历史详情弹窗
+// formatTranscript() 的展示格式一致），在判定高光之前调用——分离"转写"和
+// "判定"两个步骤的落地产物。写入失败只记日志、不中断主流程：这是旁路产物，
+// 逻辑对齐 writeHistoryRecord()"失败不掩盖真正处理结果"的原则。
+func writeTranscriptFile(videoPath string, sentences []Sentence) {
+	var b strings.Builder
+	for _, s := range sentences {
+		b.WriteString(s.Text)
+		b.WriteByte('\n')
+	}
+	path := transcriptFilePath(videoPath)
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		slog.Warn("core: failed to write transcript file", "path", path, "error", err)
+	}
 }
 
 // diskFreeBytes 是 freeBytes 的可替换点，测试用它注入假的可用空间数值，

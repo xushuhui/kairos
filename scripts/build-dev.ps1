@@ -21,7 +21,7 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$outDir = Join-Path $root "bin"
+$outDir = $root
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 Write-Host "==> go build"

@@ -81,7 +81,20 @@ kairos/
 
 ## 配置
 
-API Key 和输出设置存在本地 JSON 文件里（`os.UserConfigDir()/kairos/config.json`，Windows 上对应 `%APPDATA%\kairos\config.json`）：
+Kairos 自包含/可移植：配置、历史记录、日志都放在可执行文件同目录，不写进系统用户目录。以 `kairos.exe` 所在目录为例，布局是：
+
+```
+<exe 目录>/
+├── kairos.exe
+├── config.json      DeepSeek API Key + 输出设置
+├── history/         每次处理（成功或失败）一个 JSON 文件
+├── logs/
+│   ├── app.log        全量日志（所有级别）
+│   └── error.log       仅 Error 级别，方便快速肉眼查看
+└── models/           内置的 Paraformer/Silero-VAD/标点恢复 ONNX 模型
+```
+
+`config.json`：
 
 ```json
 {

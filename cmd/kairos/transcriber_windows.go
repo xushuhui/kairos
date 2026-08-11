@@ -4,27 +4,28 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
+	"kairos/internal/apppath"
 	"kairos/internal/asr"
 	"kairos/internal/core"
 )
 
 // modelDirPath resolves where ticket 09's installer places the bundled
 // Paraformer-large + Silero VAD + punctuation model files, relative to the
-// running executable's own directory — NOT the process's current working
-// directory. A relative "models" constant would break the moment kairos.exe
-// is launched with a different cwd (double-click from a shortcut with no
-// explicit "start in" dir, `go run`, a console opened elsewhere), surfacing
-// only as a confusing mid-run "加载失败" with no path hint (found during
-// pre-flight audit before this had ever been exercised on real Windows).
+// running executable's own directory (apppath.Dir()) — NOT the process's
+// current working directory. A relative "models" constant would break the
+// moment kairos.exe is launched with a different cwd (double-click from a
+// shortcut with no explicit "start in" dir, `go run`, a console opened
+// elsewhere), surfacing only as a confusing mid-run "加载失败" with no path
+// hint (found during pre-flight audit before this had ever been exercised
+// on real Windows).
 func modelDirPath() (string, error) {
-	exe, err := os.Executable()
+	dir, err := apppath.Dir()
 	if err != nil {
 		return "", fmt.Errorf("定位可执行文件路径失败: %w", err)
 	}
-	return filepath.Join(filepath.Dir(exe), "models"), nil
+	return filepath.Join(dir, "models"), nil
 }
 
 // newProductionTranscriber wires the real Paraformer transcriber. CUDA is

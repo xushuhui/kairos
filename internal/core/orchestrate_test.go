@@ -4,20 +4,24 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"kairos/internal/apppath"
 	"kairos/internal/history"
 	"kairos/internal/testutil"
 )
 
-// withTempHome 重定向 os.UserConfigDir() 解析出的用户配置目录到一个测试临时
-// 目录（在 darwin 上 UserConfigDir 直接派生自 $HOME），避免 RunHighlightExtraction
-// 内部调用 history.WriteRecord() 时真的写进这台机器的 %APPDATA%/kairos/。
+// withTempHome 把 apppath.Dir（history.WriteRecord/ListRecords 用它定位
+// history/ 目录）重定向到一个测试临时目录，避免 RunHighlightExtraction
+// 内部调用 history.WriteRecord() 时真的写进这台机器上编译出的测试二进制
+// 所在目录。
 func withTempHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("AppData", dir) // windows 生产环境对应的变量，测试环境无副作用
+	orig := apppath.Dir
+	apppath.Dir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { apppath.Dir = orig })
 	return dir
 }
 
@@ -274,6 +278,36 @@ func TestRunHighlightExtraction_JudgeFailure(t *testing.T) {
 	_, err := RunHighlightExtraction(src, Config{}, &fakeTranscriber{sentences: testSentences()}, &fakeJudge{err: wantErr})
 	if !errors.Is(err, ErrLlmInvalidResponse) || !errors.Is(err, wantErr) {
 		t.Fatalf("RunHighlightExtraction() error = %v, want wrapping both ErrLlmInvalidResponse and %v", err, wantErr)
+	}
+}
+
+// 用户明确要求「转写台词步骤和发给 DeepSeek 分开，台词放到视频同一个目录」：
+// 即使 judge.Judge() 失败（比如 DeepSeek 超时），转写产物也已经落盘，不随
+// LLM 调用失败一起丢失。
+func TestRunHighlightExtraction_TranscriptFileWrittenEvenIfJudgingFails(t *testing.T) {
+	testutil.RequireFfmpeg(t)
+	withTempHome(t)
+
+	src := testutil.MakeTestMp4(t)
+	_, err := RunHighlightExtraction(src, Config{}, &fakeTranscriber{sentences: testSentences()}, &fakeJudge{err: errors.New("deepseek 超时")})
+	if err == nil {
+		t.Fatal("RunHighlightExtraction() error = nil, want non-nil (judge configured to fail)")
+	}
+
+	wantPath := transcriptFilePath(src)
+	raw, readErr := os.ReadFile(wantPath)
+	if readErr != nil {
+		t.Fatalf("transcript file not written at %s: %v", wantPath, readErr)
+	}
+	got := string(raw)
+	for _, want := range []string{"开场白", "冲突升级", "高潮反转"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("transcript file content = %q, want it to contain %q", got, want)
+		}
+	}
+
+	if filepath.Dir(wantPath) != filepath.Dir(src) {
+		t.Errorf("transcript file dir = %q, want same dir as source video %q", filepath.Dir(wantPath), filepath.Dir(src))
 	}
 }
 
