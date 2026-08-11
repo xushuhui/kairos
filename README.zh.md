@@ -85,8 +85,7 @@ API Key 和输出设置存在本地 JSON 文件里（`os.UserConfigDir()/kairos/
 ```json
 {
   "deepseek": {
-    "api_key": "",
-    "use_credential_manager": false
+    "api_key": ""
   },
   "output": {
     "default_dir": ""

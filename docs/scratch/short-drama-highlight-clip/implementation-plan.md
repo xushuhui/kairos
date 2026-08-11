@@ -229,8 +229,7 @@ func ListRecords() ([]Record, error)
 // %APPDATA%/kairos/config.json
 {
   "deepseek": {
-    "api_key": "",                      // 明文存储（默认档）
-    "use_credential_manager": false     // true 时改从 Windows 凭据管理器读取，此字段仅存开关
+    "api_key": ""                       // 明文存储
   },
   "output": {
     "default_dir": ""                   // 空 = 源文件同目录

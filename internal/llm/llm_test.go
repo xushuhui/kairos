@@ -310,7 +310,7 @@ func TestSaveAPIKey(t *testing.T) {
 		if err := os.MkdirAll(kairosDir, 0o755); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
-		existing := `{"deepseek":{"api_key":"sk-old","use_credential_manager":true},"output":{"default_dir":"/videos"}}`
+		existing := `{"deepseek":{"api_key":"sk-old","model":"deepseek-chat"},"output":{"default_dir":"/videos"}}`
 		if err := os.WriteFile(filepath.Join(kairosDir, "config.json"), []byte(existing), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
@@ -332,8 +332,8 @@ func TestSaveAPIKey(t *testing.T) {
 		if deepseek["api_key"] != "sk-new" {
 			t.Errorf("deepseek.api_key = %v, want sk-new", deepseek["api_key"])
 		}
-		if deepseek["use_credential_manager"] != true {
-			t.Errorf("deepseek.use_credential_manager = %v, want true (preserved)", deepseek["use_credential_manager"])
+		if deepseek["model"] != "deepseek-chat" {
+			t.Errorf("deepseek.model = %v, want deepseek-chat (preserved)", deepseek["model"])
 		}
 		output, _ := got["output"].(map[string]any)
 		if output["default_dir"] != "/videos" {

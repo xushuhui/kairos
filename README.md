@@ -85,8 +85,7 @@ API key and output settings live in a local JSON file (`os.UserConfigDir()/kairo
 ```json
 {
   "deepseek": {
-    "api_key": "",
-    "use_credential_manager": false
+    "api_key": ""
   },
   "output": {
     "default_dir": ""
