@@ -26,7 +26,14 @@ const (
 	vadModelFile         = "vad/silero_vad.onnx"
 	punctuationModelFile = "punctuation/model.onnx"
 
-	vadSampleRate        = 16000
+	// audioSampleRate 是本项目音轨提取环节固定输出的 16kHz 单声道 WAV
+	// （implementation-plan.md「音轨提取」），也是 sherpa-onnx 所有官方预训练
+	// 模型（VAD + Paraformer 特征提取）期望的采样率，两处复用同一个常量。
+	audioSampleRate = 16000
+	// featureDim 是 sherpa-onnx 官方预训练模型固定期望的特征维度
+	// （sherpa.FeatureConfig 文档原话："It is 80 for all pre-trained models
+	// provided by us"）。
+	featureDim           = 80
 	vadBufferSizeSeconds = 30
 )
 
@@ -71,7 +78,7 @@ func NewParaformerTranscriber(modelDir string, useCuda bool) (*ParaformerTranscr
 			WindowSize:         512,
 			MaxSpeechDuration:  20,
 		},
-		SampleRate: vadSampleRate,
+		SampleRate: audioSampleRate,
 		NumThreads: 1,
 		Provider:   "cpu",
 	}, vadBufferSizeSeconds)
@@ -99,8 +106,17 @@ func NewParaformerTranscriber(modelDir string, useCuda bool) (*ParaformerTranscr
 // newOfflineRecognizer 用给定 execution provider 初始化一次 Paraformer-large
 // 离线识别器；nil 返回值时 sherpa-onnx 官方绑定不暴露具体失败原因，
 // 只能返回一个笼统的 error。
+//
+// FeatConfig 是必填项——sherpa.FeatureConfig{} 零值（SampleRate=0,
+// FeatureDim=0）会导致底层 C API 直接拒绝构造识别器。此前实现遗漏了这项
+// 配置，是真实 Windows 机器上验证时定位到的 bug：模型文件路径/大小完全
+// 正确的情况下，provider=cpu 依然稳定初始化失败，根因就是这里。
 func newOfflineRecognizer(modelDir, provider string) (*sherpa.OfflineRecognizer, error) {
 	recognizer := sherpa.NewOfflineRecognizer(&sherpa.OfflineRecognizerConfig{
+		FeatConfig: sherpa.FeatureConfig{
+			SampleRate: audioSampleRate,
+			FeatureDim: featureDim,
+		},
 		ModelConfig: sherpa.OfflineModelConfig{
 			Paraformer: sherpa.OfflineParaformerModelConfig{
 				Model: filepath.Join(modelDir, paraformerModelFile),
