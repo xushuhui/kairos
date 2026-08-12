@@ -92,3 +92,62 @@ func TestMergeWordsToSentences(t *testing.T) {
 		})
 	}
 }
+
+func TestSentenceEndIndicesFromPunctuation(t *testing.T) {
+	cases := []struct {
+		name       string
+		words      []WordToken
+		punctuated string
+		want       []int
+	}{
+		{
+			name:       "单句，句末标点定位到最后一个 token",
+			words:      []WordToken{{Text: "你"}, {Text: "好"}},
+			punctuated: "你好。",
+			want:       []int{1},
+		},
+		{
+			name: "多句，每个句末标点各定位一个边界",
+			words: []WordToken{
+				{Text: "你"}, {Text: "好"}, {Text: "吗"},
+				{Text: "我"}, {Text: "很"}, {Text: "好"},
+			},
+			punctuated: "你好吗？我很好。",
+			want:       []int{2, 5},
+		},
+		{
+			name:       "没有标点时不产生边界",
+			words:      []WordToken{{Text: "甲"}, {Text: "乙"}},
+			punctuated: "甲乙",
+			want:       nil,
+		},
+		{
+			name:       "多字符 token 按 rune 长度正确推进边界",
+			words:      []WordToken{{Text: "你好"}, {Text: "吗"}},
+			punctuated: "你好吗？",
+			want:       []int{1},
+		},
+		{
+			name:       "空 words 不 panic，直接返回空边界",
+			words:      nil,
+			punctuated: "。",
+			want:       nil,
+		},
+		{
+			name:       "空 punctuated 字符串返回空边界",
+			words:      []WordToken{{Text: "甲"}},
+			punctuated: "",
+			want:       nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := sentenceEndIndicesFromPunctuation(c.words, c.punctuated)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("sentenceEndIndicesFromPunctuation(%+v, %q) = %v, want %v",
+					c.words, c.punctuated, got, c.want)
+			}
+		})
+	}
+}

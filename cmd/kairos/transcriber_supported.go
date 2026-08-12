@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows || darwin
 
 package main
 
@@ -28,24 +28,31 @@ func modelDirPath() (string, error) {
 	return filepath.Join(dir, "models"), nil
 }
 
-// newProductionTranscriber wires the real Paraformer transcriber. CUDA is
-// requested by default — asr.NewParaformerTranscriber falls back to CPU
-// internally on CUDA init failure (ticket 03), so this doesn't need its own
-// fallback branch.
+// newProductionTranscriber wires the real Paraformer transcriber, CPU
+// provider only (user-directed decision: CUDA execution provider caused
+// too many real-machine failure modes — see internal/asr/paraformer_windows.go's
+// NewParaformerTranscriber doc comment for the specific crash that tipped
+// this decision). Builds on both windows and darwin — internal/asr ships a
+// mirrored implementation per platform (paraformer_windows.go /
+// paraformer_darwin.go) behind the identical asr.NewParaformerTranscriber
+// signature, so this call site needs no platform branching of its own.
+// darwin support exists purely as a local dev/test convenience (user-
+// directed: verify end to end on macOS before installing on the actual
+// Windows target) — map.md's "Windows-only, macOS/Linux out of scope"
+// deployment decision hasn't changed.
 func newProductionTranscriber() core.Transcriber {
 	dir, err := modelDirPath()
 	if err != nil {
 		return failingTranscriber{err: fmt.Errorf("asr: %w", err)}
 	}
-	t, err := asr.NewParaformerTranscriber(dir, true)
+	t, err := asr.NewParaformerTranscriber(dir)
 	if err != nil {
 		// Model files missing/corrupt at startup — surface it the same way
-		// as the non-Windows "unsupported platform" stub does: defer the
-		// error to the first Transcribe() call rather than crashing app
-		// startup, so the rest of the GUI (file picking, history, settings)
-		// stays usable and the error shows up through the same
-		// RunHighlightExtraction -> userMessage() path as every other
-		// failure mode.
+		// as the unsupported-platform stub does: defer the error to the
+		// first Transcribe() call rather than crashing app startup, so the
+		// rest of the GUI (file picking, history, settings) stays usable
+		// and the error shows up through the same RunHighlightExtraction
+		// -> userMessage() path as every other failure mode.
 		return failingTranscriber{err: err}
 	}
 	return t

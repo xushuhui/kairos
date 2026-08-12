@@ -3,18 +3,23 @@
 # neither of which exist on this repo's macOS dev machine — this script is
 # written but genuinely unverified, see packaging/README.md).
 #
+# CPU-only by design (user-directed decision, 2026-08-11): a CUDA execution
+# provider build was tried and reverted for internal/asr — see
+# internal/asr/paraformer_windows.go's NewParaformerTranscriber doc comment
+# for why. No CUDA/cuDNN runtime DLLs to bundle here as a result (FFmpeg's
+# own NVENC/NVDEC hardware encode/decode path is unaffected either way —
+# that goes through the NVIDIA driver directly, not ONNX Runtime's
+# execution provider, and isn't part of this change).
+#
 # Usage: pwsh ./packaging/build.ps1 -Version 0.1.0
 #   -FfmpegDir   directory containing ffmpeg.exe/ffprobe.exe            (required)
 #   -ModelsDir   directory containing the Paraformer/Silero-VAD/        (required)
 #                punctuation model files, copied to dist/models/
-#   -CudaDir     directory containing the CUDA/cuDNN runtime DLLs       (required)
-#                listed in wix.json's files.items
 #   -Version     product version passed to go-msi                      (required)
 
 param(
     [Parameter(Mandatory = $true)][string]$FfmpegDir,
     [Parameter(Mandatory = $true)][string]$ModelsDir,
-    [Parameter(Mandatory = $true)][string]$CudaDir,
     [Parameter(Mandatory = $true)][string]$Version
 )
 
@@ -39,28 +44,15 @@ Copy-Item (Join-Path $FfmpegDir "ffprobe.exe") $dist
 Write-Host "==> Copying ASR model files"
 Copy-Item (Join-Path $ModelsDir "*") (Join-Path $dist "models") -Recurse
 
-Write-Host "==> Copying CUDA/cuDNN runtime DLLs"
-# Filenames come from wix.json's files.items (single source of truth — no
-# second hardcoded list to keep in sync). See packaging/README.md for the
-# version-pinning caveat before changing wix.json's DLL entries.
-$manifest = Get-Content (Join-Path $root "packaging/wix.json") | ConvertFrom-Json
-$cudaDlls = $manifest.files.items |
-    Where-Object { $_ -like "dist/*.dll" } |
-    ForEach-Object { Split-Path -Leaf $_ }
-foreach ($dll in $cudaDlls) {
-    Copy-Item (Join-Path $CudaDir $dll) $dist
+Write-Host "==> Copying sherpa-onnx-go-windows runtime DLLs (CPU-only)"
+# go build alone only links these into the import table — it does not copy
+# the DLLs sherpa-onnx-go-windows dynamically loads at runtime, same reason
+# scripts/build-dev.ps1 copies them for local dev builds.
+$modDir = Join-Path (go env GOMODCACHE) "github.com\k2-fsa\sherpa-onnx-go-windows@v1.13.4\lib\x86_64-pc-windows-gnu"
+if (-not (Test-Path $modDir)) {
+    throw "sherpa-onnx-go-windows module cache not found at $modDir. Run 'go mod download' first."
 }
-
-Write-Host "==> NVIDIA redistribution notice"
-# Required by wix.json's files.items — NVIDIA permits redistributing these
-# runtime DLLs under its own license terms; this file must contain that
-# notice text (05-deployment-cicd.md). Not fabricated here — fill in from
-# NVIDIA's actual redistribution EULA before shipping.
-if (-not (Test-Path (Join-Path $CudaDir "NVIDIA_REDIST_LICENSE.txt"))) {
-    Write-Warning "NVIDIA_REDIST_LICENSE.txt not found in -CudaDir — MSI build will fail until it's supplied."
-} else {
-    Copy-Item (Join-Path $CudaDir "NVIDIA_REDIST_LICENSE.txt") $dist
-}
+Copy-Item (Join-Path $modDir "*.dll") $dist -Force
 
 Write-Host "==> Running go-msi"
 Push-Location (Join-Path $root "packaging")

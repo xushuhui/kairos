@@ -1,4 +1,4 @@
-//go:build windows
+//go:build darwin
 
 package asr
 
@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	sherpa "github.com/k2-fsa/sherpa-onnx-go-windows"
+	sherpa "github.com/k2-fsa/sherpa-onnx-go-macos"
 
 	"kairos/internal/core"
 )
@@ -15,13 +15,18 @@ import (
 // ParaformerTranscriber 用 sherpa-onnx 加载本地 Paraformer-large 离线识别模型
 // + Silero-VAD + 标点恢复模型，实现 core.Transcriber。
 //
-// 本文件只在 windows 下编译（sherpa-onnx-go-windows 的 Go 源码本身也是
-// //go:build windows && (amd64 || 386) 门控的，在其它平台上不存在可编译的
-// 实现）。darwin 有独立的镜像实现（paraformer_darwin.go，走
-// github.com/k2-fsa/sherpa-onnx-go-macos），两份平台文件之间没有 sherpa
-// 类型依赖的公共逻辑已经提到不带 build tag 的 merge.go 里共用（模型文件
-// 路径约定、VAD 调参常量、标点边界对齐），这里只保留真正依赖 sherpa
-// windows 绑定具体类型、没法跨平台共享的部分。
+// 本文件只在 darwin 下编译，是 paraformer_windows.go 的镜像实现——两个平台
+// 用的都是 sherpa-onnx 官方 Go 绑定，API 表面逐字段核对过完全一致（截至
+// sherpa-onnx-go-windows@v1.13.4 / sherpa-onnx-go-macos@v1.13.5），差别只在
+// import 的具体平台包。没有 sherpa 类型依赖的公共逻辑已经提到不带 build tag
+// 的 merge.go 里共用（模型文件路径约定、VAD 调参常量、标点边界对齐）。
+//
+// 加这份 darwin 实现是用户明确要求的开发便利，不是要把 macOS 变成正式支持
+// 的部署平台——map.md「Out of scope」里"只做 Windows"的决定没有变，
+// 这份实现只是为了能在本机（而不是来回在 Windows 机器上贴日志）直接跑通
+// 音轨提取→VAD→Paraformer→标点恢复整条链路，验证 Go 侧逻辑（尤其是 VAD
+// 分块喂入这类跟平台无关的调用方式问题）本身是对的，减少 Windows 那边的
+// 排查轮次。
 type ParaformerTranscriber struct {
 	recognizer  *sherpa.OfflineRecognizer
 	vad         *sherpa.VoiceActivityDetector
@@ -29,15 +34,10 @@ type ParaformerTranscriber struct {
 }
 
 // NewParaformerTranscriber 加载 modelDir 下的 Paraformer-large + Silero-VAD +
-// 标点恢复模型，固定用 CPU provider。之前尝试过 CUDA execution provider，
-// 用户明确要求去掉：CUDA 依赖（onnxruntime_providers_cuda.dll 及其
-// cudart64_12.dll/cublasLt64_12.dll/cudnn64_9.dll 等一整套 CUDA
-// Toolkit/cuDNN 运行时库）在真实 Windows 机器上暴露出的问题比它带来的速度
-// 收益更麻烦——版本必须精确匹配（CUDA 12.x + cuDNN 9.x），装不全时不是
-// 干净报错，而是 onnxruntime 内部抛 C++ 异常、跨越 cgo 边界后变成未处理的
-// SEH 异常直接崩掉整个进程（Go 的 recover() 接不住，崩溃发生在 C 调用栈
-// 里）。CPU provider 没有这些外部依赖，只要模型文件本身正确就能稳定跑
-// 起来，用户认为这个稳定性的取舍值得。
+// 标点恢复模型，固定用 CPU provider——跟 Windows 侧保持一致的决策（用户
+// 明确要求去掉 CUDA execution provider，见 paraformer_windows.go 的
+// NewParaformerTranscriber doc comment），CPU provider 没有外部运行时依赖，
+// 只要模型文件本身正确就能稳定跑起来。
 func NewParaformerTranscriber(modelDir string) (*ParaformerTranscriber, error) {
 	recognizer, err := newOfflineRecognizer(modelDir)
 	if err != nil {
@@ -84,9 +84,8 @@ func NewParaformerTranscriber(modelDir string) (*ParaformerTranscriber, error) {
 // 一个笼统的 error。
 //
 // FeatConfig 是必填项——sherpa.FeatureConfig{} 零值（SampleRate=0,
-// FeatureDim=0）会导致底层 C API 直接拒绝构造识别器。此前实现遗漏了这项
-// 配置，是真实 Windows 机器上验证时定位到的 bug：模型文件路径/大小完全
-// 正确的情况下，provider=cpu 依然稳定初始化失败，根因就是这里。
+// FeatureDim=0）会导致底层 C API 直接拒绝构造识别器（真机排查定位到的
+// bug，见 paraformer_windows.go 对应函数的 doc comment）。
 func newOfflineRecognizer(modelDir string) (*sherpa.OfflineRecognizer, error) {
 	recognizer := sherpa.NewOfflineRecognizer(&sherpa.OfflineRecognizerConfig{
 		FeatConfig: sherpa.FeatureConfig{
@@ -127,12 +126,10 @@ func (p *ParaformerTranscriber) Close() {
 // 给拼接文本加标点、定位句末边界，调 mergeWordsToSentences 合并为句级 core.Sentence。
 //
 // VAD 必须按 vadWindowSize（512 样本 = 32ms）分块喂，每块喂完立刻排空
-// p.vad 里已经切好的片段——不能像最初实现那样把整段音频（哪怕补了尾部静音）
-// 一次性丢给 AcceptWaveform() 再统一排空。这不是猜的，是拿一段真实 52 秒
-// 短剧素材实测出来的：一次性喂整段，VAD 稳定切出 0 个语音片段；改成按窗口
-// 分块喂 + 逐块排空后，同一段音频、同一个模型文件，能正确切出 5 段对白。
-// 分块循环逻辑直接照抄 sherpa-onnx 官方 C++ 参考实现
-// （sherpa-onnx-vad-with-offline-asr.cc 的 main 循环），不是自己猜的写法。
+// p.vad 里已经切好的片段——不能一次性把整段音频丢给 AcceptWaveform() 再
+// 统一排空，这条是跨平台的，跟 Windows 侧真机排查出的根因完全一样（详见
+// paraformer_windows.go 对应函数的 doc comment），照抄 sherpa-onnx 官方
+// C++ 参考实现（sherpa-onnx-vad-with-offline-asr.cc 的 main 循环）。
 func (p *ParaformerTranscriber) Transcribe(audioPath string) ([]core.Sentence, error) {
 	wave := sherpa.ReadWave(audioPath)
 	if wave == nil {
@@ -156,8 +153,6 @@ func (p *ParaformerTranscriber) Transcribe(audioPath string) ([]core.Sentence, e
 			segment := p.vad.Front()
 			segmentDurationSec := float64(len(segment.Samples)) / float64(wave.SampleRate)
 			if segmentDurationSec < minSegmentDurationSec {
-				// 太短的片段大多是 VAD 误触发的噪声毛刺，跑一次 Paraformer
-				// 推理纯属浪费——跟官方参考实现（同一个 0.1 秒阈值）保持一致。
 				p.vad.Pop()
 				continue
 			}

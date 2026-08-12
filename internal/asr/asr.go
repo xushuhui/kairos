@@ -1,5 +1,5 @@
 // Package asr 封装本地 FunASR Paraformer-large ONNX 推理（sherpa-onnx-go-windows，
-// CUDA execution provider），实现 core.Transcriber。
+// CPU execution provider），实现 core.Transcriber。
 //
 // 本包按平台拆成两部分：
 //   - merge.go：字级/词级 token + 标点恢复句末边界 → 句级 core.Sentence 的纯合并

@@ -1,0 +1,15 @@
+# Runtime artifacts — kairos is self-contained/portable (config, history,
+# logs, models all live next to the built binary; see internal/apppath),
+# which for local dev builds means the repo root. None of these are source.
+/kairos
+/kairos.exe
+/config.json
+/history/
+/logs/
+/models/
+
+# packaging/build.ps1's MSI staging output (packaging/README.md)
+/packaging/dist/
+
+# OS cruft
+.DS_Store

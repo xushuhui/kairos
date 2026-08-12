@@ -10,7 +10,7 @@ A Windows desktop tool that turns a short-drama episode (1–3 min MP4/MOV/AVI/W
 source video ──▶ FFmpeg: extract 16kHz mono WAV
                         │
                         ▼
-             local ASR (FunASR Paraformer-large, ONNX + CUDA)
+             local ASR (FunASR Paraformer-large, ONNX, CPU)
                         │  sentence list with per-sentence ms timestamps
                         ▼
              cloud LLM (DeepSeek V4-flash) — judges the best ad-hook window,
@@ -31,19 +31,19 @@ Everything runs on one machine, single user, no server infrastructure. The only 
 
 ## Status
 
-Target platform is Windows 10 (1903+) / Windows 11 with an NVIDIA GPU. This repo is developed and tested on macOS, so anything gated behind CUDA/Windows-only bindings is implemented but **unverified** until run on the real target hardware — that's called out explicitly below, not glossed over.
+Target platform for actual deployment is Windows 10 (1903+) / Windows 11 — that decision hasn't changed (see `map.md`'s "Out of scope"). `internal/asr` also ships a mirrored macOS (darwin) backend purely as a **local dev/test convenience**, user-directed: verify the real pipeline end-to-end on this machine before installing on the Windows target, instead of the slow "make a Go change → someone rebuilds on Windows → pastes back a log" loop. The Windows and macOS backends are the same Go logic against two platform-specific sherpa-onnx bindings with an API surface diffed and confirmed identical (`sherpa-onnx-go-windows@v1.13.4` vs `sherpa-onnx-go-macos@v1.13.5`) — verifying on macOS gives high confidence for Windows, but isn't a substitute for a real Windows run.
 
 | # | Package | What it does | Status |
 |---|---|---|---|
 | 01 | `internal/core` | Domain types, `Transcriber`/`HighlightJudge` interfaces, `ComputeWindow()` | ✅ Done, tested |
 | 02 | `internal/video` | FFmpeg subprocess wrapper: audio extraction, CUDA detection, clip cutting, duration probe | ✅ Done, tested |
-| 03 | `internal/asr` | Local Paraformer-large + Silero VAD transcription via `sherpa-onnx-go-windows` | ⚠️ Word→sentence merge logic is cross-platform and tested; the real sherpa-onnx integration is gated behind `//go:build windows` and **cannot be verified on this machine** (no Windows host, no CUDA, no model files) |
+| 03 | `internal/asr` | Local Paraformer-large + Silero VAD transcription via `sherpa-onnx-go-windows`/`-macos` (CPU provider only) | ✅ Verified end-to-end on macOS (real models via `scripts/download-models.sh`, real TTS-generated Chinese speech audio) — VAD segmentation, Paraformer decode, and punctuation restoration all produce correct output. Windows build is the identical Go logic against the platform-matched binding; not independently run on real Windows hardware |
 | 04 | `internal/llm` | DeepSeek V4-flash client implementing `HighlightJudge` | ✅ Done, tested against a mock server; a live API call needs a real `DEEPSEEK_API_KEY`, not yet exercised |
 | 05 | `internal/core` | `RunHighlightExtraction()` — the orchestration entry point | ✅ Done, tested with hand-written fakes for the two injected interfaces |
-| 06 | — | Real-material end-to-end validation | ⬜ Not started — blocked on a Windows host, NVIDIA GPU, real ASR model files, and a DeepSeek API key |
+| 06 | — | Real-material end-to-end validation | ⚠️ ASR itself verified (see 03); full GUI → DeepSeek → clip-cut chain on a real short-drama file still needs a real Windows run with a real API key |
 | 07 | `internal/history` | JSON sidecar history records | ✅ Done, tested |
-| 08 | `cmd/kairos` | Fyne GUI | ⬜ Not started — blocked on 06 |
-| 09 | — | MSI packaging | ⬜ Not started — blocked on 08 |
+| 08 | `cmd/kairos` | Fyne GUI | ✅ Implemented, builds on both Windows and macOS; tested headless via Fyne's test driver with fake `Transcriber`/`HighlightJudge`. Not yet launched as a live window on real hardware |
+| 09 | — | MSI packaging | ⬜ Not started — scaffolding only, needs a real Windows + WiX Toolset host |
 
 Full ticket definitions and design decisions live under [`docs/scratch/short-drama-highlight-clip/`](./docs/scratch/short-drama-highlight-clip/) — `spec.md` for product decisions, `implementation-plan.md` for the engineering design, `map.md` for the decision log.
 
@@ -51,8 +51,9 @@ Full ticket definitions and design decisions live under [`docs/scratch/short-dra
 
 - Go 1.26+
 - On Windows: a cgo-capable C compiler (MinGW-w64 gcc), required to build `fyne.io/fyne/v2` (`go-gl/gl`) and `github.com/k2-fsa/sherpa-onnx-go-windows`. One-time setup: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` (allows local scripts to run), then `.\scripts\setup-cgo-toolchain.ps1`.
-- `ffmpeg`/`ffprobe` on `PATH` (dev/test only — the shipped installer bundles them)
-- To build/run for real on Windows: an NVIDIA GPU with CUDA support (falls back to CPU/`libx264` if unavailable) and the Paraformer-large + Silero VAD model files
+- On macOS (dev/test only, see Status above): Xcode Command Line Tools for cgo (`xcode-select --install`), usually already present. No extra toolchain step beyond that — `sherpa-onnx-go-macos`'s cgo linking uses an rpath baked in at build time, so unlike Windows there's no DLL-copy step needed either.
+- `ffmpeg`/`ffprobe` on `PATH` (dev/test only — the shipped installer bundles them for the real Windows deployment)
+- To build/run for real on Windows: an NVIDIA GPU with CUDA support for FFmpeg's `-hwaccel cuda`/`h264_nvenc` (falls back to CPU/`libx264` if unavailable — `internal/asr` itself is CPU-only on both platforms, see Status), and the Paraformer-large + Silero VAD model files
 - A DeepSeek API key for `internal/llm`
 
 ## Build & test
@@ -64,17 +65,31 @@ go test ./...
 
 Most tests spin up real FFmpeg subprocesses against a small generated fixture (silent, static-color 5s MP4) rather than mocking FFmpeg — see `spec.md`'s Testing Decisions for why. Tests are skipped gracefully if `ffmpeg`/`ffprobe` aren't on `PATH`.
 
+### Real ASR pipeline testing (macOS or Windows)
+
+`internal/asr`'s actual sherpa-onnx integration needs real model files (~500 MB, not vendored — see `packaging/README.md`) and real speech audio, so it's gated behind two env vars and skipped in the normal suite above:
+
+```sh
+./scripts/download-models.sh          # fetches models/ once, idempotent (Windows: scripts/download-models.ps1)
+say -v Tingting -o /tmp/speech.aiff "随便一句中文测试语音"   # macOS only, any real speech WAV works
+ffmpeg -y -i /tmp/speech.aiff -vn -ac 1 -ar 16000 -f wav /tmp/speech.wav
+
+KAIROS_TEST_MODEL_DIR="$(pwd)/models" KAIROS_TEST_AUDIO_PATH=/tmp/speech.wav \
+  go test ./internal/asr/... -run TestParaformerTranscriber_RealModels_ManualRun -v
+```
+
 ## Project layout
 
 ```
 kairos/
-├── cmd/kairos/          binary entry point (Fyne GUI, not yet implemented)
+├── cmd/kairos/          binary entry point (Fyne GUI)
 ├── internal/
 │   ├── core/            orchestration, domain types, ComputeWindow(), the two test seams
 │   ├── video/            FFmpeg subprocess wrapper
-│   ├── asr/              Paraformer transcription (Windows-only for the real backend)
+│   ├── asr/              Paraformer transcription — real backend on Windows + macOS (dev/test), mirrored Go logic per platform binding
 │   ├── llm/               DeepSeek client
 │   ├── history/           JSON sidecar history records
+│   ├── apppath/           resolves the exe-relative directory config/history/logs/models all live under
 │   └── testutil/          shared FFmpeg test-fixture helpers
 └── docs/scratch/short-drama-highlight-clip/   full spec and design docs
 ```
@@ -110,6 +125,6 @@ Kairos is self-contained/portable: config, history, and logs all live next to th
 ## Third-party licenses and attribution
 
 - ASR: FunASR Paraformer-large model weights — **FunASR Model License**, commercial use requires attribution to Alibaba / FunAudioLLM. This notice satisfies that requirement pending a proper in-app "About" screen (ticket 08).
-- `github.com/sashabaranov/go-openai`, `github.com/k2-fsa/sherpa-onnx-go-windows` — see their respective repositories for license terms.
+- `github.com/sashabaranov/go-openai`, `github.com/k2-fsa/sherpa-onnx-go-windows`, `github.com/k2-fsa/sherpa-onnx-go-macos` (dev/test only) — see their respective repositories for license terms.
 
 This repository's own license has not been chosen yet.

@@ -9,13 +9,9 @@
       "dist/kairos.exe",
       "dist/ffmpeg.exe",
       "dist/ffprobe.exe",
-      "dist/cudart64_110.dll",
-      "dist/cublas64_11.dll",
-      "dist/cublasLt64_11.dll",
-      "dist/cufft64_10.dll",
-      "dist/curand64_10.dll",
-      "dist/cudnn64_8.dll",
-      "dist/NVIDIA_REDIST_LICENSE.txt"
+      "dist/onnxruntime.dll",
+      "dist/sherpa-onnx-c-api.dll",
+      "dist/sherpa-onnx-cxx-api.dll"
     ]
   },
   "directories": [
